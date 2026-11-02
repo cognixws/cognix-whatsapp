@@ -42,6 +42,26 @@ WhatsApp side stays readable in one place.
       empty right after typing although the message went out whole; check
       whether that answer can mislead an agent.
 
+## Official source
+
+- [ ] Prove the path against a real Meta app and test number: time to the
+      Inbox, event shapes, computer off, Meta's retries. Then correct
+      `docs/official-source.md`.
+- [ ] Deliver to a running agent end to end. Tested with a fake host and with a
+      refused agent, not yet with a live one.
+- [ ] Sending, with the owner's approval on each message and the 24-hour window.
+- [ ] Encrypt what waits in the relay.
+
+## COGNIX[WS] side, seen while building the official source
+
+- [ ] An extension with one page and a site panel shows two identical tiles,
+      both named after the extension. The page's title should name its tile.
+- [ ] `.pc-button.primary` has no hover in the page tokens: it comes after
+      `.pc-button:hover` with equal specificity. This page overrides it locally.
+- [ ] Saving checked settings right after turning an extension on answers "Could
+      not confirm these settings" for the seconds before the process listens.
+- [ ] `__picodePageAudit` does not enter an extension page's sandboxed frame.
+
 ## Policy
 
 - [ ] Re-read WhatsApp's Terms on automated access and messaging before a

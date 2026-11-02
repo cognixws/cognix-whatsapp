@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Official connection</title><link rel="stylesheet" href="../__picode/tokens.css"><link rel="stylesheet" href="official.css"><script defer src="official.js"></script></head>
+<body class="pc-page">
+  <main class="source">
+    <header>
+      <h1>Official connection</h1>
+      <p class="pc-muted">WhatsApp sends new messages to a small relay in your Cloudflare account, and COGNIX[WS] picks them up from there, even with this page closed.</p>
+    </header>
+    <div id="loading" aria-label="Checking the relay" aria-busy="true"><div class="skeleton"></div><div class="skeleton short"></div></div>
+    <div id="content" hidden>
+      <section id="band" class="band" aria-live="polite">
+        <span id="dot" class="dot"></span>
+        <div class="band-text"><strong id="title"></strong><span id="sentence" class="pc-muted"></span></div>
+        <div class="band-actions">
+          <button id="settings" class="pc-button" type="button" hidden>Open settings</button>
+          <button id="action" class="pc-button" type="button"></button>
+        </div>
+      </section>
+      <section id="people">
+        <div class="heading">
+          <h2>Who hears each contact</h2>
+          <p id="saved" class="pc-muted" role="status"><span id="saved-text"></span><button id="undo" class="link" type="button" hidden>Undo</button></p>
+        </div>
+        <p id="intro" class="pc-muted intro">Include text puts what the contact wrote in the notice, marked as coming from them.</p>
+        <p id="problem" class="notice" role="alert" hidden></p>
+        <div class="table">
+          <div id="rows"></div>
+          <div class="row fixed">
+            <span class="who">All other contacts</span>
+            <span class="fixed-value pc-muted">Inbox, count only</span>
+          </div>
+        </div>
+        <div id="add" class="add" hidden>
+          <label for="pick">Add a contact</label>
+          <div class="add-row">
+            <select id="pick" class="pc-select"></select>
+            <button id="add-button" class="pc-button" type="button">Add</button>
+          </div>
+        </div>
+        <p id="empty" class="pc-muted" hidden>People who write to this number appear here.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

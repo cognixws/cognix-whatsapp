@@ -69,6 +69,14 @@ Bursts are gathered: one chat produces at most one delivery per minute, which
 says how many updates it gathered. Each app delivers at most 30 times an hour,
 and the next note after a pause says how many were held back.
 
+## The official source
+
+Besides the panel, the extension can hear about messages through Meta's official
+WhatsApp API and a small relay in your own Cloudflare account, with no panel
+open. It is optional, receives only, and has not been proven against a real Meta
+app yet: see [docs/official-source.md](docs/official-source.md). With no relay set,
+the extension works as a panel, as before. It needs Node.js 24 for this part.
+
 ## Use it with your agents
 
 With the extension on in a workspace, its agents (and every Assistant) can:

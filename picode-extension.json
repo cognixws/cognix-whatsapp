@@ -1,10 +1,10 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": 9,
   "publisher": "cognixws",
-  "description": "WhatsApp Web beside your agents, fitted to narrow panels.",
+  "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
   "icon": "icon.svg",
   "contributes": {
     "panels": [
@@ -41,6 +41,50 @@
             }
           ]
         }
+      }
+    ]
+  },
+  "process": {
+    "command": "node",
+    "args": [
+      "${extensionDir}/server/main.mjs"
+    ],
+    "settingsCheck": "/settings/check"
+  },
+  "permissions": [
+    "agents:read",
+    "messages:send",
+    "inbox:write"
+  ],
+  "settings": [
+    {
+      "key": "relay_url",
+      "label": "Relay address",
+      "type": "text",
+      "description": "The https address of your own relay. Leave it empty to use only WhatsApp Web."
+    },
+    {
+      "key": "relay_token",
+      "label": "Relay token",
+      "type": "secret",
+      "description": "The token your relay was deployed with. Stored protected on this computer."
+    },
+    {
+      "key": "phone_number_id",
+      "label": "Phone number ID",
+      "type": "text",
+      "description": "Only hear this number, from your Meta app. Empty hears every number the relay receives."
+    }
+  ],
+  "storage": {
+    "migrations": "migrations"
+  },
+  "ui": {
+    "pages": [
+      {
+        "id": "official",
+        "title": "Official connection",
+        "path": "ui/official.html"
       }
     ]
   }

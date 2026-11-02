@@ -20,7 +20,7 @@ async function setup({ pages = [], settings, routes = [], now } = {}) {
 const one = (seq, id, text = 'Oi') => metaEvent(seq, [textMessage(id, PHONE, text)], MARINA);
 
 test('without settings it asks for setup and touches nothing', async () => {
-  for (const settings of [{ values: {}, secrets: {} }, { values: { relay_url: 'https://r.example' }, secrets: {} }, { values: {}, secrets: { relay_token: 't' } }]) {
+  for (const settings of [{ values: {}, secrets: {} }, { values: { relay_url: 'https://r.example' }, secrets: {} }, { values: {}, secrets: { relay_token: 't' } }, { values: { relay_url: 'https://r.example' }, secrets: { relay_token: 't' } }]) {
     const { source, relay } = await setup({ settings });
     assert.equal(source.state, 'needs-setup');
     assert.equal(await source.poll(), false);
@@ -240,6 +240,21 @@ test('not being able to list agents does not read as agents being gone', async (
   host.agents = async () => { throw new ApiError(0, 'down'); };
   const view = await source.routesView();
   assert.equal(view.agentsKnown, false);
+});
+
+test('events sealed to another key stay in the relay and say so', async () => {
+  const { generateKeys } = await import('../relay/seal.mjs');
+  const { source, host, relay } = await setup({ pages: [one(1, 'w1'), one(2, 'w2')] });
+  await source.poll();
+  assert.equal(host.inboxItems.length, 2);
+  relay.publicKey = (await generateKeys()).publicKey;
+  relay.pages.push(one(3, 'w3'));
+  await source.poll();
+  assert.equal(source.state, 'key-mismatch');
+  assert.ok(source.status().problem);
+  assert.equal(host.inboxItems.length, 2);
+  assert.deepEqual(relay.acks, [2]);
+  assert.equal(relay.pages.length, 1);
 });
 
 test('text is never written to the database', async () => {

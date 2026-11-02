@@ -55,10 +55,11 @@
     // In the title, so that a failing check does not wrap the sentence and move the page.
     const seen = recent ? ', checked just now' : '';
     switch (s.state) {
-      case 'needs-setup': return ['idle', 'Not connected', 'Add your relay\'s address and token to start receiving.', 'Open settings', openSettings, true];
+      case 'needs-setup': return ['idle', 'Not connected', 'Add your relay\'s address, token and private key to start receiving.', 'Open settings', openSettings, true];
       case 'receiving': return ['', 'Receiving', checked + (s.lastMessageAt ? `Last message ${ago(s.lastMessageAt)}.` : 'Connected to your relay. No message yet.'), 'Check now', check, false];
       case 'relay-rejected': return ['bad', 'Relay refused the token', s.problem, 'Open settings', openSettings, true];
       case 'relay-misconfigured': return ['bad', `Relay not set up${seen}`, s.problem, 'Check again', check, true];
+      case 'key-mismatch': return ['bad', 'Keys do not match', s.problem, 'Open settings', openSettings, true];
       case 'relay-unreachable': return ['bad', `Relay not answering${seen}`, s.problem, 'Check again', check, true];
       case 'host-unavailable': return ['bad', 'Delivery paused', 'New messages wait in your relay until COGNIX[WS] answers.', 'Check again', check, true];
       default: return ['idle', 'Checking', 'Looking at your relay.', 'Check now', check, false];

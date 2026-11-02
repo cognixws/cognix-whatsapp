@@ -2,10 +2,11 @@
 // to a public address, and COGNIX[WS] opens no public port, so this holds each
 // event until the owner's computer fetches it. Secrets are Worker secrets:
 // APP_SECRET and VERIFY_TOKEN come from the Meta app, RELAY_TOKEN is the one
-// the extension holds.
+// the extension holds, and PUBLIC_KEY seals each event to the owner's computer.
+import { seal } from './seal.mjs';
 
 const MAX_BODY = 4 * 1024 * 1024; // Meta sends up to 3 MB.
-const MAX_ROW = 1_900_000; // D1 refuses a value over 2 MB.
+const MAX_ROW = 1_350_000; // D1 refuses a value over 2 MB; sealing adds about a third.
 const MAX_PAGE = 100;
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -79,7 +80,7 @@ async function receive(request, env, now) {
     for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
       const value = JSON.stringify(change?.value ?? null);
       if (value.length > MAX_ROW) { oversize++; continue; }
-      rows.push({ id: await digest(`${change?.field}\n${value}`), field: String(change?.field ?? ''), value });
+      rows.push({ id: await digest(`${change?.field}\n${value}`), field: String(change?.field ?? ''), value: await seal(env.PUBLIC_KEY, value) });
     }
   }
   const statements = rows.map(row => env.DB.prepare('INSERT OR IGNORE INTO events (id, received_at, field, value) VALUES (?, ?, ?, ?)').bind(row.id, now, row.field, row.value));
@@ -96,7 +97,7 @@ async function listEvents(url, env) {
   if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1) return json(400, { error: 'bad-cursor' });
   const { results } = await env.DB.prepare('SELECT seq, received_at, field, value FROM events WHERE seq > ? ORDER BY seq LIMIT ?').bind(after, limit).all();
   return json(200, {
-    events: results.map(row => ({ seq: row.seq, receivedAt: row.received_at, field: row.field, value: JSON.parse(row.value) })),
+    events: results.map(row => ({ seq: row.seq, receivedAt: row.received_at, field: row.field, sealed: row.value })),
   });
 }
 
@@ -130,7 +131,7 @@ export async function expire(env, now) {
 
 export default {
   async fetch(request, env) {
-    if (!env.APP_SECRET || !env.VERIFY_TOKEN || !env.RELAY_TOKEN || !env.DB) return json(503, { error: 'not-configured' });
+    if (!env.APP_SECRET || !env.VERIFY_TOKEN || !env.RELAY_TOKEN || !env.PUBLIC_KEY || !env.DB) return json(503, { error: 'not-configured' });
     const url = new URL(request.url);
     const { pathname: path } = url;
     if (path === '/webhook' && request.method === 'GET') return verifyWebhook(url, env);

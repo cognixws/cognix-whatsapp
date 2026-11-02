@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "apiVersion": 9,
   "publisher": "cognixws",
   "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
@@ -77,6 +77,12 @@
       "label": "Relay token",
       "type": "secret",
       "description": "The token your relay was deployed with. Stored protected on this computer."
+    },
+    {
+      "key": "relay_private_key",
+      "label": "Relay private key",
+      "type": "secret",
+      "description": "The private.json that relay/keygen.mjs wrote. Only this computer can open what waits in your relay."
     },
     {
       "key": "phone_number_id",

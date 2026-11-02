@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { ApiError, Relay } from './http.mjs';
+import { privateKey } from '../relay/seal.mjs';
 
 // COGNIX[WS] relays up to 1 MiB; a long list of destinations fits.
 const MAX_BODY = 1024 * 1024;
@@ -10,6 +11,11 @@ const MAX_BODY = 1024 * 1024;
 export async function checkSettings(body, makeRelay = (address, token) => new Relay(address, token)) {
   const address = body.values?.relay_url;
   const token = body.secrets?.relay_token;
+  const key = body.secrets?.relay_private_key;
+  if (key) {
+    try { await privateKey(key); }
+    catch { throw new ApiError(400, 'Check the relay private key.'); }
+  }
   if (!address && !token) return;
   if (!address) throw new ApiError(400, 'Add the relay address too.');
   if (!token) return; // The saved token stays; it was checked when it was saved.

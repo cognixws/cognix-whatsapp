@@ -1,6 +1,7 @@
 import { ApiError, Relay } from './http.mjs';
 import { INBOX, OFF } from './ledger.mjs';
 import { messagesOf, renderNotice } from './meta.mjs';
+import { open, privateKey } from '../relay/seal.mjs';
 
 export const POLL_MS = 10_000;
 const MAX_BACKOFF_MS = 5 * 60_000;
@@ -14,6 +15,7 @@ const PROBLEMS = {
   'relay-rejected': 'Your relay refused this computer\'s token, so no messages arrive.',
   'relay-unreachable': 'New messages cannot reach this computer until your relay answers.',
   'relay-misconfigured': 'Your relay is missing a secret, so it cannot receive messages.',
+  'key-mismatch': 'This computer\'s private key does not open what your relay keeps. Messages wait there until the keys match.',
 };
 
 export class Source {
@@ -37,7 +39,8 @@ export class Source {
   async configure() {
     const { values = {}, secrets = {} } = await this.host.settings();
     this.phoneNumberId = String(values.phone_number_id || '').trim();
-    if (!values.relay_url || !secrets.relay_token) { this.relay = null; this.state = 'needs-setup'; return; }
+    if (!values.relay_url || !secrets.relay_token || !secrets.relay_private_key) { this.relay = null; this.state = 'needs-setup'; return; }
+    this.key = await privateKey(secrets.relay_private_key);
     this.relay = this.makeRelay(values.relay_url, secrets.relay_token);
     this.state = 'checking';
   }
@@ -78,7 +81,16 @@ export class Source {
     let upTo = 0;
     try {
       for (const event of page.events ?? []) {
-        await this.handle(event);
+        let value;
+        try { value = JSON.parse(await open(this.key, event.sealed)); }
+        catch {
+          // Not this computer's key. Nothing is lost: what is left stays in the
+          // relay until the keys match.
+          if (upTo) await this.acknowledge(upTo);
+          await this.failed(new ApiError(0, 'sealed'), 'key-mismatch');
+          return false;
+        }
+        await this.handle({ field: event.field, value });
         upTo = event.seq;
       }
     } catch (error) {
@@ -183,9 +195,9 @@ export class Source {
     return true;
   }
 
-  async failed(error) {
+  async failed(error, state = '') {
     const status = error instanceof ApiError ? error.status : 0;
-    this.state = status === 401 || status === 403 ? 'relay-rejected' : status === 503 ? 'relay-misconfigured' : 'relay-unreachable';
+    this.state = state || (status === 401 || status === 403 ? 'relay-rejected' : status === 503 ? 'relay-misconfigured' : 'relay-unreachable');
     this.failures++;
     const now = this.now();
     if (!this.failingSince) this.failingSince = now;

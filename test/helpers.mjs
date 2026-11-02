@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { Ledger } from '../server/ledger.mjs';
+import { generateKeys, seal } from '../relay/seal.mjs';
+
+// One key pair for the whole run: generating one per test is slow and proves nothing more.
+export const KEYS = await generateKeys();
 
 export function memoryLedger() {
   const ledger = new Ledger(':memory:');
@@ -15,7 +19,7 @@ export const metaEvent = (seq, messages, contacts, { number = 'PN1', field = 'me
 export const textMessage = (id, from, body) => ({ from, id, timestamp: '1760000000', type: 'text', text: { body } });
 export const person = (wa_id, name) => ({ profile: { name }, wa_id });
 
-export function fakeHost({ settings = { values: { relay_url: 'https://relay.example' }, secrets: { relay_token: 't' } } } = {}) {
+export function fakeHost({ settings = { values: { relay_url: 'https://relay.example' }, secrets: { relay_token: 't', relay_private_key: KEYS.privateKey } } } = {}) {
   const host = {
     inboxItems: [], messages: [], failInbox: null, failMessage: null,
     settings: async () => settings,
@@ -29,9 +33,12 @@ export function fakeHost({ settings = { values: { relay_url: 'https://relay.exam
 export function fakeRelay(pages = []) {
   const relay = {
     pages, acks: [], health_: { ok: true, pending: 0, lastReceivedAt: 0, dropped: 0 }, failEvents: null, failAck: null,
+    // The relay seals each event as it stores it; this one seals as it hands out.
+    publicKey: KEYS.publicKey,
     events: async after => {
       if (relay.failEvents) throw relay.failEvents;
-      return { events: relay.pages.filter(event => event.seq > after) };
+      const page = relay.pages.filter(event => event.seq > after);
+      return { events: await Promise.all(page.map(async ({ seq, receivedAt, field, value }) => ({ seq, receivedAt, field, sealed: await seal(relay.publicKey, JSON.stringify(value)) }))) };
     },
     ack: async upTo => {
       if (relay.failAck) throw relay.failAck;

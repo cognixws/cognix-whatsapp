@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import worker, { expire } from '../relay/worker.mjs';
 import { fakeD1 } from './d1-fake.mjs';
+import { generateKeys, open, privateKey } from '../relay/seal.mjs';
+
+const KEYS = await generateKeys();
+const unseal = async event => JSON.parse(await open(await privateKey(KEYS.privateKey), event.sealed));
 
 const base = 'https://relay.example';
-const makeEnv = options => ({ APP_SECRET: 'app-secret', VERIFY_TOKEN: 'verify-me', RELAY_TOKEN: 'relay-token', DB: fakeD1(options) });
+const makeEnv = options => ({ APP_SECRET: 'app-secret', VERIFY_TOKEN: 'verify-me', RELAY_TOKEN: 'relay-token', PUBLIC_KEY: KEYS.publicKey, DB: fakeD1(options) });
 const sign = (body, secret = 'app-secret') => 'sha256=' + createHmac('sha256', secret).update(body).digest('hex');
 const change = (id, text = 'hello') => ({ field: 'messages', value: { messaging_product: 'whatsapp', messages: [{ id, from: '5511999990000', type: 'text', text: { body: text } }] } });
 const payload = (...changes) => JSON.stringify({ object: 'whatsapp_business_account', entry: [{ id: 'waba', changes }] });
@@ -51,7 +55,7 @@ test('a repeated delivery is stored once, and a batch splits by change', async (
   assert.equal((await post(env, body)).status, 200);
   assert.equal((await post(env, body)).status, 200);
   const { events } = await (await authed(env, '/events')).json();
-  assert.deepEqual(events.map(e => e.value.messages[0].id), ['a', 'b']);
+  assert.deepEqual(await Promise.all(events.map(async e => (await unseal(e)).messages[0].id)), ['a', 'b']);
 });
 
 test('a database failure answers 500 so that Meta delivers again', async () => {
@@ -69,7 +73,7 @@ test('events page by cursor, and ack removes only what was taken', async () => {
   assert.equal(first.events.length, 2);
   const upTo = first.events.at(-1).seq;
   const second = await (await authed(env, `/events?after=${upTo}`)).json();
-  assert.deepEqual(second.events.map(e => e.value.messages[0].id), ['c']);
+  assert.deepEqual(await Promise.all(second.events.map(async e => (await unseal(e)).messages[0].id)), ['c']);
   const ack = await authed(env, '/ack', { method: 'POST', body: JSON.stringify({ upTo }) });
   assert.equal(ack.status, 200);
   const health = await (await authed(env, '/health')).json();
@@ -95,14 +99,32 @@ test('bad cursors are refused', async () => {
 });
 
 test('an unconfigured relay answers nothing but its state', async () => {
-  const env = { ...makeEnv(), APP_SECRET: '' };
-  assert.equal((await post(env, payload(change('a')))).status, 503);
-  assert.equal(env.DB.raw.prepare('SELECT COUNT(1) AS n FROM events').get().n, 0);
+  for (const missing of ['APP_SECRET', 'PUBLIC_KEY']) {
+    const env = { ...makeEnv(), [missing]: '' };
+    assert.equal((await post(env, payload(change('a')))).status, 503, missing);
+    assert.equal(env.DB.raw.prepare('SELECT COUNT(1) AS n FROM events').get().n, 0, missing);
+  }
+});
+
+test('what waits in the relay is sealed: the text is not in the database', async () => {
+  const env = makeEnv();
+  await post(env, payload(change('a', 'SECRET WORDS')));
+  const stored = JSON.stringify(env.DB.raw.prepare('SELECT * FROM events').all());
+  assert.ok(!stored.includes('SECRET WORDS'));
+  const { events } = await (await authed(env, '/events')).json();
+  assert.equal((await unseal(events[0])).messages[0].text.body, 'SECRET WORDS');
+});
+
+test('a large message near the limit still seals and opens', async () => {
+  const env = makeEnv();
+  assert.equal((await post(env, payload(change('mid', 'y'.repeat(1_300_000))))).status, 200);
+  const { events } = await (await authed(env, '/events')).json();
+  assert.equal((await unseal(events[0])).messages[0].text.body.length, 1_300_000);
 });
 
 test('an oversize change is counted, and what never came back expires and is counted', async () => {
   const env = makeEnv();
-  await post(env, payload(change('big', 'x'.repeat(2_000_000)), change('small')));
+  await post(env, payload(change('big', 'x'.repeat(1_400_000)), change('small')));
   let health = await (await authed(env, '/health')).json();
   assert.equal(health.pending, 1);
   assert.equal(health.dropped, 1);

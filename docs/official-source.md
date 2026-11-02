@@ -38,34 +38,40 @@ Node.js 24. Use your company's accounts for a company number.
    npx wrangler d1 create picode-whatsapp-relay
    npx wrangler d1 execute picode-whatsapp-relay --remote --file schema.sql
    ```
-2. Set three secrets. `APP_SECRET` comes from the Meta app's Basic settings; the
-   other two are long random strings you make up:
+2. Make the key pair that seals what waits in the relay, in a folder only you
+   can read: `node relay/keygen.mjs <folder>`. It writes `public.json` and
+   `private.json` and prints neither.
+3. Set four secrets. `APP_SECRET` comes from the Meta app's Basic settings,
+   `PUBLIC_KEY` is the content of `public.json`, and the other two are long
+   random strings you make up:
    ```
    npx wrangler secret put APP_SECRET
    npx wrangler secret put VERIFY_TOKEN
    npx wrangler secret put RELAY_TOKEN
+   npx wrangler secret put PUBLIC_KEY < <folder>/public.json
    ```
-3. Deploy with `npx wrangler deploy` from `relay/`, and note the address.
-4. Create the Meta app with the WhatsApp use case, in your business portfolio.
+4. Deploy with `npx wrangler deploy` from `relay/`, and note the address.
+5. Create the Meta app with the WhatsApp use case, in your business portfolio.
    In the use case's **Step 1. Try it out**, claim the test number and note its
    phone number ID and account ID.
-5. Point Meta at the relay. With the app's id and secret:
+6. Point Meta at the relay. With the app's id and secret:
    ```
    curl -X POST "https://graph.facebook.com/v25.0/<APP_ID>/subscriptions" \
      -d object=whatsapp_business_account -d fields=messages \
      -d callback_url=<relay address>/webhook -d verify_token=<VERIFY_TOKEN> \
      -d access_token=<APP_ID>\|<APP_SECRET>
    ```
-6. Subscribe the WhatsApp account to the app. Without this, Meta delivers nothing.
+7. Subscribe the WhatsApp account to the app. Without this, Meta delivers nothing.
    Use a token from **Generate token**, and choose only the account you need:
    ```
    curl -X POST "https://graph.facebook.com/v25.0/<ACCOUNT_ID>/subscribed_apps" \
      -H "Authorization: Bearer <TOKEN>"
    ```
-7. In COGNIX[WS], turn the extension on in at least one workspace (its process
-   runs while it is on somewhere), open its settings, and enter the relay address
-   and `RELAY_TOKEN`. Saving checks them against the relay.
-8. Open the **Official connection** page. It should say Receiving. Send a message to
+8. In COGNIX[WS], turn the extension on in at least one workspace (its process
+   runs while it is on somewhere), open its settings, and enter the relay address,
+   `RELAY_TOKEN` and the content of `private.json`. Saving checks them against
+   the relay. Then delete `private.json`, or keep it where only you can read it.
+9. Open the **Official connection** page. It should say Receiving. Send a message to
    the number; the person appears there to be given a route.
 
 ## What happens to a message
@@ -107,8 +113,12 @@ notice. A repeated notice is preferred over a lost one.
 - **The extension stores no message text.** Its database holds contact ids and
   names, routes, and which ids were delivered. It travels in COGNIX[WS] backups.
 - **The relay holds events until they are fetched**, up to 14 days, in your own
-  D1 database, in the clear. Anyone with access to your Cloudflare account can
-  read what is waiting there.
+  D1 database, sealed to the private key only this computer holds (ECDH P-256,
+  HKDF-SHA-256, AES-GCM). Someone with access to your Cloudflare account cannot
+  read what waits there. They could still change the Worker to read messages
+  that arrive afterwards, so protect that account too.
+- **A key that does not match** stops delivery without losing anything: the
+  page says so, and messages wait in the relay until the keys match.
 - **Meta, Cloudflare and the model provider** of any agent that reads the text
   all see it. Tell the people you talk to where that is required.
 - **Meta's terms restrict AI providers** when AI is the primary functionality of

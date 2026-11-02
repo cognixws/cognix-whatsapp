@@ -57,6 +57,12 @@ test('the check needs an address with a token, and keeps a saved token', async (
   assert.deepEqual(seen, [['https://r.example', 't']]);
 });
 
+test('a private key that is not one is refused before it is saved', async () => {
+  const { generateKeys } = await import('../relay/seal.mjs');
+  await assert.rejects(checkSettings({ values: {}, secrets: { relay_private_key: 'not a key' } }), { status: 400 });
+  await checkSettings({ values: {}, secrets: { relay_private_key: (await generateKeys()).privateKey } });
+});
+
 test('routes and errors keep their own shape', async () => {
   const source = {
     saveRoutes: routes => { if (!Array.isArray(routes)) throw new ApiError(400, 'Each contact can have one route.'); return routes; },

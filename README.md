@@ -59,8 +59,7 @@ A message from the WhatsApp extension, for example:
   Give it instructions for what to do with these notes (summarize, tell you
   only about urgent ones, draft a reply for you to send…).
 - An **agent** gets it typed into its terminal, like any message between
-  agents, so it interrupts what the agent is doing. Route to an agent only
-  when that is what you want.
+  agents, when it can take a prompt: while it works, the message waits.
 
 The note carries the chat's name and the unread count, never the message.
 To read it, the Assistant or agent opens the panel beside itself and uses the
@@ -69,6 +68,11 @@ browser tools inside web.whatsapp.com only.
 Bursts are gathered: one chat produces at most one delivery per minute, which
 says how many updates it gathered. Each app delivers at most 30 times an hour,
 and the next note after a pause says how many were held back.
+
+## What an agent can do in the panel
+
+The `whatsapp-panel` skill teaches an agent to read, send and handle media in the
+panel, and asks for your OK on each message sent.
 
 ## The official source
 

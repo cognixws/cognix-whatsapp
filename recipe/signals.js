@@ -45,6 +45,18 @@
       }
     }
     primed = true;
+    offerChats();
+  };
+
+  // The names you can pick in Notifications…. They stay in COGNIX[WS]'s window
+  // on this computer; nothing is sent while the list has not changed.
+  let offered = '';
+  const offerChats = () => {
+    const names = [...seen.keys()];
+    const key = names.join('\n');
+    if (key === offered || !window.picode.chats) return;
+    offered = key;
+    window.picode.chats(names);
   };
 
   let queued = false;

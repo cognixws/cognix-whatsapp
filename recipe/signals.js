@@ -52,12 +52,15 @@
   // on this computer; nothing is sent while the list has not changed.
   let offered = '';
   const offerChats = () => {
+    if (!window.picode.chats) return;
     const names = [...seen.keys()];
     const key = names.join('\n');
-    if (key === offered || !window.picode.chats) return;
+    if (key === offered) return;
     offered = key;
     window.picode.chats(names);
   };
+  // COGNIX[WS] may not have been ready for the first offer.
+  setInterval(() => { offered = ''; offerChats(); }, 5 * 60_000);
 
   let queued = false;
   const later = () => {

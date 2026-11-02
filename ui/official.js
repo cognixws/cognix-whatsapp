@@ -105,16 +105,16 @@
   };
   const option = (value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; return o; };
 
-  async function save(next, done) {
+  async function save(next, done, focusNext) {
     const before = routes;
     routes = next;
-    render();
+    render(focusNext);
     showSaved('Saving…');
     $('problem').hidden = true;
     saving++;
     try {
       routes = (await call('/routes', { routes: next })).routes;
-      render();
+      render(focusNext);
       done ? done(before) : showSaved('Saved.');
     } catch (error) {
       routes = before;
@@ -124,54 +124,65 @@
     } finally { saving--; }
   }
 
+  // Removing rows shrinks the page, and the browser then moves whatever is under
+  // the pointer: a second tap could land on another contact's Remove. The height
+  // holds until the person scrolls.
+  const releaseHeight = () => { $('people').style.minHeight = ''; };
+  const holdHeight = () => { $('people').style.minHeight = `${$('people').offsetHeight}px`; };
+  for (const name of ['wheel', 'touchmove']) addEventListener(name, releaseHeight, { passive: true });
+
   const missing = route => agentsKnown && !['inbox', 'off'].includes(route.target) && !agents.some(a => a.id === route.target);
+  const focusKey = (contact, target, part) => `${contact}\n${target}\n${part}`;
+  const agentName = id => id === 'inbox' ? 'Inbox' : agents.find(a => a.id === id)?.name ?? (agentsKnown ? 'Agent not found' : 'Chosen agent');
+  const inSentence = id => agentsKnown && !['inbox', 'off'].includes(id) && !agents.some(a => a.id === id) ? 'The missing agent' : agentName(id);
+  // A new destination sits with its contact's others, so a block never jumps.
+  const withRoute = (route) => {
+    const last = routes.map(r => r.contact).lastIndexOf(route.contact);
+    return last < 0 ? [...routes, route] : [...routes.slice(0, last + 1), route, ...routes.slice(last + 1)];
+  };
 
-  function renderRow(route) {
+  function renderDestination(route, siblings, name) {
     const row = document.createElement('div');
-    row.className = 'row';
-    const { name, detail } = contactLabel(route.contact);
-    const who = document.createElement('span');
-    who.className = 'who';
-    who.textContent = name;
-    if (detail) { const small = document.createElement('small'); small.textContent = detail; who.append(small); }
-
+    row.className = 'dest';
     const select = document.createElement('select');
     select.className = 'pc-select';
-    select.dataset.focus = `${route.contact}\nwho`;
+    select.dataset.focus = focusKey(route.contact, route.target, 'who');
     select.setAttribute('aria-label', `Who hears ${name}`);
-    select.append(option('inbox', 'Inbox'));
-    for (const agent of agents) select.append(option(agent.id, agent.name));
-    if (!['inbox', 'off'].includes(route.target) && !agents.some(a => a.id === route.target)) select.append(option(route.target, agentsKnown ? 'Agent not found' : 'Chosen agent'));
-    select.append(option('off', 'Off, stay silent'));
+    const taken = new Set(siblings.map(r => r.target).filter(t => t !== route.target));
+    if (!taken.has('inbox')) select.append(option('inbox', 'Inbox'));
+    for (const agent of agents) if (!taken.has(agent.id)) select.append(option(agent.id, agent.name));
+    if (!['inbox', 'off'].includes(route.target) && !agents.some(a => a.id === route.target)) select.append(option(route.target, agentName(route.target)));
     select.value = route.target;
     select.title = select.selectedOptions[0]?.textContent || '';
-    select.onchange = () => save(routes.map(r => r === route ? { ...r, target: select.value, preview: select.value === 'off' ? false : r.preview } : r));
+    select.onchange = () => save(routes.map(r => r === route ? { ...r, target: select.value } : r), undefined, focusKey(route.contact, select.value, 'who'));
 
     const check = document.createElement('label');
     check.className = 'check';
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.checked = route.preview;
-    box.dataset.focus = `${route.contact}\ntext`;
+    box.dataset.focus = focusKey(route.contact, route.target, 'text');
     box.onchange = () => save(routes.map(r => r === route ? { ...r, preview: box.checked } : r));
+    box.setAttribute('aria-label', `Include text for ${agentName(route.target)}, from ${name}`);
     check.append(box, 'Include text');
-    // Off and a missing agent both mean no text goes anywhere.
-    check.style.visibility = route.target === 'off' || missing(route) ? 'hidden' : '';
+    // A missing agent means no text goes anywhere.
+    check.style.visibility = missing(route) ? 'hidden' : '';
 
     const remove = document.createElement('button');
     remove.className = 'pc-button';
     remove.type = 'button';
     remove.textContent = 'Remove';
-    remove.setAttribute('aria-label', `Remove ${name}`);
-    remove.onclick = () => save(routes.filter(r => r !== route), before => {
-      showSaved(`${name} now counts as any other contact.`, () => {
+    remove.setAttribute('aria-label', `Remove ${agentName(route.target)} from ${name}`);
+    remove.onclick = () => { holdHeight(); save(routes.filter(r => r !== route), before => {
+      const last = siblings.length === 1;
+      showSaved(last ? `${name} now counts as any other contact.` : `${inSentence(route.target)} no longer hears ${name}.`, () => {
         showSaved('');
         save(before, () => { showSaved('Restored.'); focusContact(route.contact); });
       });
-      $('pick').focus();
-    });
+      if (last) $('pick').focus(); else focusContact(route.contact);
+    }); };
 
-    row.append(who, select, check, remove);
+    row.append(select, check, remove);
     if (missing(route)) {
       const note = document.createElement('p');
       note.className = 'row-note';
@@ -181,22 +192,103 @@
     return row;
   }
 
-  function render() {
+  function renderContact(contact, own) {
+    const block = document.createElement('div');
+    block.className = 'contact';
+    const { name, detail } = contactLabel(contact);
+    const head = document.createElement('div');
+    head.className = 'contact-head';
+    const who = document.createElement('div');
+    who.className = 'who';
+    const strong = document.createElement('strong');
+    strong.textContent = name;
+    who.append(strong);
+    if (detail) { const small = document.createElement('small'); small.textContent = detail; who.append(small); }
+    head.append(who);
+    block.append(head);
+
+    const silent = own.some(r => r.target === 'off');
+    const button = document.createElement('button');
+    button.className = 'pc-button';
+    button.type = 'button';
+    button.dataset.focus = focusKey(contact, '', 'silence');
+    if (silent) {
+      button.textContent = 'Hear again';
+      button.setAttribute('aria-label', `Hear ${name} again`);
+      button.onclick = () => save(routes.map(r => r.contact === contact ? { contact, target: 'inbox', preview: false } : r), undefined, focusKey(contact, 'inbox', 'who'));
+      const quiet = document.createElement('p');
+      quiet.className = 'pc-muted';
+      quiet.textContent = 'Stays silent: nobody hears this contact.';
+      head.append(button);
+      block.append(quiet);
+      return block;
+    }
+    button.textContent = 'Silence';
+    button.setAttribute('aria-label', `Silence ${name}`);
+    button.onclick = () => {
+      const first = routes.findIndex(r => r.contact === contact);
+      const others = routes.filter(r => r.contact !== contact);
+      const next = [...others.slice(0, first), { contact, target: 'off', preview: false }, ...others.slice(first)];
+      holdHeight();
+      save(next, before => {
+        showSaved(`Nobody hears ${name} now.`, () => {
+          showSaved('');
+          save(before, () => { showSaved('Restored.'); focusContact(contact); });
+        });
+      }, focusKey(contact, '', 'silence'));
+    };
+    head.append(button);
+    block.append(...own.map(route => renderDestination(route, own, name)));
+
+    const taken = new Set(own.map(r => r.target));
+    const free = [...(taken.has('inbox') ? [] : [{ id: 'inbox', name: 'Inbox' }]), ...agents.filter(a => !taken.has(a.id))];
+    if (free.length) {
+      const row = document.createElement('div');
+      row.className = 'more-row';
+      const more = document.createElement('select');
+      more.className = 'pc-select';
+      more.dataset.focus = focusKey(contact, '', 'more');
+      more.setAttribute('aria-label', `Who else hears ${name}`);
+      more.append(option('', 'Add who hears…'), ...free.map(f => option(f.id, f.name)));
+      const add = document.createElement('button');
+      add.className = 'pc-button';
+      add.type = 'button';
+      add.textContent = 'Add';
+      add.dataset.focus = focusKey(contact, '', 'add');
+      add.setAttribute('aria-label', `Add who else hears ${name}`);
+      add.disabled = true;
+      more.onchange = () => { add.disabled = !more.value; };
+      add.onclick = () => {
+        // The Add row goes away with the last free destination; focus moves to the new row.
+        const focus = free.length === 1 ? focusKey(contact, more.value, 'who') : focusKey(contact, '', 'more');
+        save(withRoute({ contact, target: more.value, preview: false }), undefined, focus);
+      };
+      row.append(more, add);
+      block.append(row);
+    }
+    return block;
+  }
+
+  function render(focusNext) {
     // Rebuilding the rows must not take the keyboard away from the person.
-    const focused = document.activeElement?.dataset?.focus;
-    $('rows').replaceChildren(...routes.map(renderRow));
-    if (focused) [...$('rows').querySelectorAll('[data-focus]')].find(e => e.dataset.focus === focused)?.focus();
-    const routed = new Set(routes.map(r => r.contact));
-    const free = contacts.filter(c => !routed.has(c.key) && !(c.phone && routed.has(c.phone)));
+    const focused = focusNext || document.activeElement?.dataset?.focus;
+    const groups = new Map();
+    for (const route of routes) groups.set(route.contact, [...(groups.get(route.contact) ?? []), route]);
+    $('rows').replaceChildren(...[...groups].map(([contact, own]) => renderContact(contact, own)));
+    // Only a move the person asked for may scroll the page.
+    if (focused) [...$('rows').querySelectorAll('[data-focus]')].find(e => e.dataset.focus === focused)?.focus({ preventScroll: !focusNext });
+    const free = contacts.filter(c => !groups.has(c.key) && !(c.phone && groups.has(c.phone)));
     const picked = $('pick').value;
     $('pick').replaceChildren(...free.map(c => option(c.key, c.name ? `${c.name}${c.phone ? ` (${phoneText(c.phone)})` : ''}` : c.phone ? phoneText(c.phone) : c.key)));
     if (free.some(c => c.key === picked)) $('pick').value = picked;
     $('add').hidden = !free.length;
     $('empty').hidden = free.length > 0 || routes.length > 0;
-    $('intro').hidden = !routes.some(r => r.target !== 'off' && !missing(r));
+    // Kept in place while there are rows, so that silencing a contact moves nothing.
+    $('intro').hidden = !routes.length;
+    $('intro').style.visibility = routes.some(r => r.target !== 'off' && !missing(r)) ? '' : 'hidden';
   }
 
-  const focusContact = contact => [...$('rows').querySelectorAll('select')].find(e => e.dataset.focus === `${contact}\nwho`)?.focus();
+  const focusContact = contact => $('rows').querySelector(`select[data-focus^="${CSS.escape(contact)}"]`)?.focus();
 
   $('settings').onclick = openSettings;
   $('add-button').onclick = () => {
@@ -210,7 +302,9 @@
       if (!checking) status = nextStatus;
       if (!saving) {
         const seen = JSON.stringify(view);
-        if (seen !== renderedView) {
+        // Not under the person's hands: a rebuild would close an open list.
+        const busyHere = $('rows').contains(document.activeElement) || document.activeElement === $('pick');
+        if (seen !== renderedView && !busyHere) {
           renderedView = seen;
           ({ routes, contacts, agents, agentsKnown } = view);
           render();

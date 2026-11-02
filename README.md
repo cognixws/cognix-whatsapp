@@ -36,7 +36,8 @@ agent's **Open beside** menu.
    - **A note in my Inbox** (on by default): one note per chat with new
      messages, for example "WhatsApp: 3 unread in Family".
    - **Also tell**: add an Assistant or an agent that should hear about it,
-     up to 8. For each, leave **Only these chats** empty to hear about every
+     as many as you want (with COGNIX[WS] newer than November 2026; up to 8
+     before that). For each, leave **Only these chats** empty to hear about every
      chat, or type chat names separated by commas (`Family, Work team`). A
      name must be written as WhatsApp shows it in the chat list; case does
      not matter.
@@ -73,8 +74,8 @@ and the next note after a pause says how many were held back.
 
 Besides the panel, the extension can hear about messages through Meta's official
 WhatsApp API and a small relay in your own Cloudflare account, with no panel
-open. It is optional, receives only, and has not been proven against a real Meta
-app yet: see [docs/official-source.md](docs/official-source.md). With no relay set,
+open. It is optional and receives only. Each contact can tell as many agents and
+Assistants as you want: see [docs/official-source.md](docs/official-source.md). With no relay set,
 the extension works as a panel, as before. It needs Node.js 24 for this part.
 
 ## Use it with your agents

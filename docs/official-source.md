@@ -84,13 +84,15 @@ Decision table, covered in `test/source.test.mjs`, `test/relay.test.mjs` and
 | From another number while a phone number ID is set | Ignored |
 | Delivery status, or another field | Ignored |
 | Contact with no route | Inbox, count only, never the text |
-| Route to the Inbox or an agent, Show text off | Notice without the text |
-| Route to the Inbox or an agent, Show text on | Notice with the text, each line quoted and marked as data |
-| Route set to Off | Silent, and marked as handled |
+| Any number of destinations for a contact | Each is told, with no limit, and each keeps its own choice about the text |
+| A destination with Include text off | Notice without the text |
+| A destination with Include text on | Notice with the text, each line quoted and marked as data |
+| Delivery fails halfway through the destinations | The next poll tells only those still missing |
+| Contact set to Off | Silent, and marked as handled |
 | Agent cannot take it (stopped, deleted) | Inbox note without the text, saying who could not be reached |
 | COGNIX[WS] not answering | What is left stays in the relay and returns on the next poll, without repeating what was delivered |
 | Relay database recreated, numbering from 1 again | Still delivers, since this computer keeps no position in the relay |
-| Over 30 notices in an hour | Held, and the next notice for that contact says how many |
+| Over 30 messages told in an hour, counted once however many hear each | Held, and the next notice for that contact says how many |
 | Relay refuses the token | State "Relay refused the token", backs off |
 | Relay unreachable for 5 minutes | State "Relay not answering", one Inbox note until it recovers |
 

@@ -32,16 +32,18 @@ export class Ledger {
   clearHeld(key) { this.db.prepare('UPDATE contacts SET held = 0 WHERE key = ?').run(key); }
 
   routes() {
-    return this.db.prepare('SELECT contact, target, preview FROM routes ORDER BY contact').all().map(row => ({ contact: row.contact, target: row.target, preview: !!row.preview }));
+    return this.db.prepare('SELECT contact, target, preview FROM routes ORDER BY contact, rowid').all().map(row => ({ contact: row.contact, target: row.target, preview: !!row.preview }));
   }
   // A contact can be known by a phone number, a business-scoped id, or both.
-  routeFor(ids) {
-    const find = this.db.prepare('SELECT contact, target, preview FROM routes WHERE contact = ?');
+  routesFor(ids) {
+    const find = this.db.prepare('SELECT contact, target, preview FROM routes WHERE contact = ? ORDER BY rowid');
+    const byTarget = new Map();
     for (const id of ids) {
-      const row = find.get(id);
-      if (row) return { contact: row.contact, target: row.target, preview: !!row.preview };
+      for (const row of find.all(id)) {
+        if (!byTarget.has(row.target)) byTarget.set(row.target, { contact: row.contact, target: row.target, preview: !!row.preview });
+      }
     }
-    return null;
+    return [...byTarget.values()];
   }
   replaceRoutes(routes) {
     this.db.exec('BEGIN');

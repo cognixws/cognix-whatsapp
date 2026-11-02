@@ -3,7 +3,7 @@ import { Ledger } from '../server/ledger.mjs';
 
 export function memoryLedger() {
   const ledger = new Ledger(':memory:');
-  ledger.db.exec(readFileSync(new URL('../migrations/001_official_source.sql', import.meta.url), 'utf8'));
+  for (const file of ['001_official_source.sql', '002_many_destinations.sql']) ledger.db.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
   return ledger;
 }
 

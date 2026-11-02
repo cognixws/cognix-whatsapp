@@ -49,6 +49,45 @@ test('a contact routed to an agent reaches it, with the text only when preview i
   }
 });
 
+test('a contact tells every destination, each with its own choice about the text', async () => {
+  const { source, host } = await setup({ pages: [one(1, 'w1', 'Quinta?')], routes: [
+    { contact: PHONE, target: 'a1', preview: true },
+    { contact: PHONE, target: 'a2', preview: false },
+    { contact: PHONE, target: 'a3', preview: true },
+    { contact: PHONE, target: 'inbox', preview: false },
+  ] });
+  await source.poll();
+  assert.deepEqual(host.messages.map(m => [m.to, m.text.includes('Quinta?')]), [['a1', true], ['a2', false], ['a3', true]]);
+  assert.equal(host.inboxItems.length, 1);
+  assert.ok(!host.inboxItems[0].body.includes('Quinta?'));
+});
+
+test('a failure halfway tells only the destinations still missing', async () => {
+  const { source, host } = await setup({ pages: [one(1, 'w1')], routes: [{ contact: PHONE, target: 'a1' }, { contact: PHONE, target: 'a2' }] });
+  const real = host.message;
+  let calls = 0;
+  host.message = async (...args) => { if (++calls === 2) throw new ApiError(0, 'down'); return real(...args); };
+  await source.poll();
+  assert.deepEqual(host.messages.map(m => m.to), ['a1']);
+  await source.poll();
+  assert.deepEqual(host.messages.map(m => m.to), ['a1', 'a2']);
+});
+
+test('the hourly limit counts a message once, however many hear it', async () => {
+  const routes = Array.from({ length: 40 }, (_, i) => ({ contact: PHONE, target: `a${i}` }));
+  const { source, host } = await setup({ pages: [one(1, 'w1'), one(2, 'w2')], routes });
+  await source.poll();
+  assert.equal(host.messages.length, 80);
+});
+
+test('routes under a phone and under a business id both count, once per destination', async () => {
+  const contacts = [{ profile: { name: 'Bia' }, wa_id: PHONE, user_id: 'BR.B1' }];
+  const event = metaEvent(1, [textMessage('w1', PHONE, 'x')], contacts);
+  const { source, host } = await setup({ pages: [event], routes: [{ contact: PHONE, target: 'a1' }, { contact: 'BR.B1', target: 'a2' }, { contact: 'BR.B1', target: 'a1' }] });
+  await source.poll();
+  assert.deepEqual(host.messages.map(m => m.to), ['a1', 'a2']);
+});
+
 test('a route set to off stays silent and still moves on', async () => {
   const { source, host, relay } = await setup({ pages: [one(1, 'w1')], routes: [{ contact: PHONE, target: 'off', preview: false }] });
   await source.poll();
@@ -218,6 +257,8 @@ test('the page sees senders to choose from, and routes are validated', async () 
   assert.equal(view.agents[0].name, 'Atlas');
   assert.deepEqual(source.saveRoutes([{ contact: PHONE, target: 'off', preview: true }]), [{ contact: PHONE, target: 'off', preview: false }]);
   assert.throws(() => source.saveRoutes([{ contact: PHONE, target: 'a1' }, { contact: PHONE, target: 'a1' }]), ApiError);
+  assert.throws(() => source.saveRoutes([{ contact: PHONE, target: 'a1' }, { contact: PHONE, target: 'off' }]), ApiError);
+  assert.equal(source.saveRoutes(Array.from({ length: 500 }, (_, i) => ({ contact: PHONE, target: `a${i}` }))).length, 500);
   assert.throws(() => source.saveRoutes([{ contact: '', target: 'a1' }]), ApiError);
   assert.throws(() => source.saveRoutes('no'), ApiError);
 });

@@ -2,7 +2,8 @@ import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { ApiError, Relay } from './http.mjs';
 
-const MAX_BODY = 64 * 1024;
+// COGNIX[WS] relays up to 1 MiB; a long list of destinations fits.
+const MAX_BODY = 1024 * 1024;
 
 // Checks candidate settings before COGNIX[WS] saves them. The values are used once
 // and never returned or logged.

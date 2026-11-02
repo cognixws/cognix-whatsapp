@@ -134,20 +134,32 @@ export class Source {
     this.ledger.touchContact(contact, now);
     this.lastMessageAt = now;
     this.ledger.set('last_message_at', now);
-    const route = this.ledger.routeFor(contact.ids);
-    const target = route?.target ?? INBOX;
-    const fresh = messages.filter(message => !this.ledger.delivered(message.id, target));
-    if (!fresh.length) return;
-    const ids = fresh.map(message => message.id);
-    if (target === OFF) { this.ledger.markDelivered(ids, OFF, now); return; }
-    if (!this.spend(now)) {
-      this.ledger.addHeld(contact.key, fresh.length);
-      this.ledger.markDelivered(ids, target, now);
+    const routes = this.ledger.routesFor(contact.ids);
+    if (routes.some(route => route.target === OFF)) {
+      this.ledger.markDelivered(messages.map(message => message.id), OFF, now);
       return;
     }
-    // Text goes only where the owner asked for it, for this contact.
+    // No route: the Inbox, as a count. Each destination keeps its own record,
+    // so a failure halfway repeats nothing for those already told.
+    const pending = (routes.length ? routes : [{ target: INBOX, preview: false }])
+      .map(route => ({ ...route, fresh: messages.filter(message => !this.ledger.delivered(message.id, route.target)) }))
+      .filter(route => route.fresh.length);
+    if (!pending.length) return;
+    // The hourly limit counts messages told, however many destinations hear them.
+    if (!this.spend(now)) {
+      const heldIds = new Set(pending.flatMap(route => route.fresh.map(message => message.id)));
+      this.ledger.addHeld(contact.key, heldIds.size);
+      for (const route of pending) this.ledger.markDelivered(route.fresh.map(message => message.id), route.target, now);
+      return;
+    }
     const held = this.ledger.heldFor(contact.key);
-    const notice = renderNotice({ contact, messages: fresh, preview: !!route?.preview, held });
+    for (const route of pending) await this.tell(route, contact, held, now);
+    this.ledger.clearHeld(contact.key);
+  }
+
+  async tell({ target, preview, fresh }, contact, held, now) {
+    // Text goes only where the owner asked for it, for this contact.
+    const notice = renderNotice({ contact, messages: fresh, preview, held });
     if (target === INBOX) {
       await this.host.inbox(notice.title, notice.text);
     } else {
@@ -161,8 +173,7 @@ export class Source {
         await this.host.inbox(safe.title, `${safe.text}\nThe agent chosen for this contact could not be reached.`);
       }
     }
-    this.ledger.clearHeld(contact.key);
-    this.ledger.markDelivered(ids, target, now);
+    this.ledger.markDelivered(fresh.map(message => message.id), target, now);
   }
 
   spend(now) {
@@ -221,15 +232,18 @@ export class Source {
   }
 
   saveRoutes(routes) {
-    if (!Array.isArray(routes) || routes.length > 200) throw new ApiError(400, 'Keep up to 200 contacts.');
+    if (!Array.isArray(routes)) throw new ApiError(400, 'These destinations could not be read.');
     const seen = new Set();
     const clean = routes.map(route => {
       const contact = String(route?.contact ?? '').trim();
       const target = String(route?.target ?? '').trim();
-      if (!contact || contact.length > 200 || !target || target.length > 200 || seen.has(contact)) throw new ApiError(400, 'Each contact can have one route.');
-      seen.add(contact);
+      const key = `${contact}\n${target}`;
+      if (!contact || contact.length > 200 || !target || target.length > 200 || seen.has(key)) throw new ApiError(400, 'Each destination can hear a contact once.');
+      seen.add(key);
       return { contact, target, preview: route.preview === true && target !== OFF };
     });
+    const silent = new Set(clean.filter(route => route.target === OFF).map(route => route.contact));
+    if (clean.some(route => silent.has(route.contact) && route.target !== OFF)) throw new ApiError(400, 'A silent contact has no other destination.');
     this.ledger.replaceRoutes(clean);
     return clean;
   }

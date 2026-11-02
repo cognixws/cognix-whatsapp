@@ -29,6 +29,11 @@ WhatsApp side stays readable in one place.
       the page exposes one).
 - [ ] Mentions: a separate signal when the account is mentioned in a group.
 
+- [x] Say when the page stops noticing messages (QR code asked again, page
+      changed): `recipe/attention.js`, 2026-11-02.
+- [ ] Say when nothing can notice at all (desktop app closed, page crashed):
+      only COGNIX[WS] can see that the page went silent.
+
 ## Agents
 
 - [ ] Let an agent subscribe itself to a chat ("tell me when the group X
@@ -41,6 +46,26 @@ WhatsApp side stays readable in one place.
       (`type` then `press Enter`). Note that `type` reported the field as
       empty right after typing although the message went out whole; check
       whether that answer can mislead an agent.
+
+## Official source
+
+- [x] Prove the path against a real Meta app and test number: time to the
+      relay, event shape, and waiting in the relay until the extension started.
+- [ ] Measure Meta's retries when the relay is down.
+- [ ] Deliver to a running agent end to end. Tested with a fake host and with a
+      refused agent, not yet with a live one.
+- [ ] Sending, with the owner's approval on each message and the 24-hour window.
+- [ ] Encrypt what waits in the relay.
+
+## COGNIX[WS] side, seen while building the official source
+
+- [ ] An extension with one page and a site panel shows two identical tiles,
+      both named after the extension. The page's title should name its tile.
+- [ ] `.pc-button.primary` has no hover in the page tokens: it comes after
+      `.pc-button:hover` with equal specificity. This page overrides it locally.
+- [ ] Saving checked settings right after turning an extension on answers "Could
+      not confirm these settings" for the seconds before the process listens.
+- [ ] `__picodePageAudit` does not enter an extension page's sandboxed frame.
 
 ## Policy
 

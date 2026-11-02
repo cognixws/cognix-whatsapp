@@ -36,7 +36,8 @@ agent's **Open beside** menu.
    - **A note in my Inbox** (on by default): one note per chat with new
      messages, for example "WhatsApp: 3 unread in Family".
    - **Also tell**: add an Assistant or an agent that should hear about it,
-     up to 8. For each, leave **Only these chats** empty to hear about every
+     as many as you want (with COGNIX[WS] newer than November 2026; up to 8
+     before that). For each, leave **Only these chats** empty to hear about every
      chat, or type chat names separated by commas (`Family, Work team`). A
      name must be written as WhatsApp shows it in the chat list; case does
      not matter.
@@ -58,8 +59,7 @@ A message from the WhatsApp extension, for example:
   Give it instructions for what to do with these notes (summarize, tell you
   only about urgent ones, draft a reply for you to send…).
 - An **agent** gets it typed into its terminal, like any message between
-  agents, so it interrupts what the agent is doing. Route to an agent only
-  when that is what you want.
+  agents, when it can take a prompt: while it works, the message waits.
 
 The note carries the chat's name and the unread count, never the message.
 To read it, the Assistant or agent opens the panel beside itself and uses the
@@ -68,6 +68,19 @@ browser tools inside web.whatsapp.com only.
 Bursts are gathered: one chat produces at most one delivery per minute, which
 says how many updates it gathered. Each app delivers at most 30 times an hour,
 and the next note after a pause says how many were held back.
+
+## What an agent can do in the panel
+
+The `whatsapp-panel` skill teaches an agent to read, send and handle media in the
+panel, and asks for your OK on each message sent.
+
+## The official source
+
+Besides the panel, the extension can hear about messages through Meta's official
+WhatsApp API and a small relay in your own Cloudflare account, with no panel
+open. It is optional and receives only. Each contact can tell as many agents and
+Assistants as you want: see [docs/official-source.md](docs/official-source.md). With no relay set,
+the extension works as a panel, as before. It needs Node.js 24 for this part.
 
 ## Use it with your agents
 
@@ -92,6 +105,11 @@ WhatsApp back to the app strip; there, its × hides it while it keeps running.
   reports them with `picode.badge` (the tile count) and `picode.signal`
   (a chat with new messages). COGNIX[WS] checks each signal against what the
   manifest declares and delivers it where you chose.
+- `recipe/attention.js` tells you once when the page can no longer notice
+  messages: WhatsApp asks for the QR code again, or its page changed so that
+  the chat list cannot be read. It goes where the notes go, as "WhatsApp needs
+  you: …", and to the agents that hear every chat, not to those limited to
+  some chats.
 
 COGNIX[WS] applies the recipe before every page of the app loads, so a
 reload, closing the panel or restarting the app keep it. The scripts read no
@@ -106,7 +124,7 @@ extension.
 | A chat never reaches its Assistant | Check the chat's name in Notifications… matches the name in WhatsApp's list |
 | "WhatsApp's notifications cannot reach COGNIX[WS]: …" | Update COGNIX[WS]; the message names what failed |
 | The tab says "recipe out of date" | WhatsApp changed its page; update the extension, or ask an agent to adjust the layout and `adjust save` it |
-| WhatsApp asks for the QR code again | Your phone unlinked the device; link it again |
+| WhatsApp asks for the QR code again | Your phone unlinked the device; link it again. You get "WhatsApp needs you" about 30 seconds after it happens |
 
 ## Use and WhatsApp's terms
 

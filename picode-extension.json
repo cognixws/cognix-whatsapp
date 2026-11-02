@@ -1,10 +1,10 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.2.1",
+  "version": "0.4.3",
   "apiVersion": 9,
   "publisher": "cognixws",
-  "description": "WhatsApp Web beside your agents, fitted to narrow panels.",
+  "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
   "icon": "icon.svg",
   "contributes": {
     "panels": [
@@ -26,7 +26,8 @@
             ],
             "scripts": [
               "recipe/back.js",
-              "recipe/signals.js"
+              "recipe/signals.js",
+              "recipe/attention.js"
             ]
           },
           "signals": [
@@ -38,10 +39,73 @@
                 "count"
               ],
               "text": "{count} unread in {chat}"
+            },
+            {
+              "id": "attention",
+              "title": "Needs you",
+              "fields": [
+                "reason"
+              ],
+              "text": "WhatsApp needs you: {reason}"
             }
           ]
         }
       }
+    ]
+  },
+  "process": {
+    "command": "node",
+    "args": [
+      "${extensionDir}/server/main.mjs"
+    ],
+    "settingsCheck": "/settings/check"
+  },
+  "permissions": [
+    "agents:read",
+    "messages:send",
+    "inbox:write"
+  ],
+  "settings": [
+    {
+      "key": "relay_url",
+      "label": "Relay address",
+      "type": "text",
+      "description": "The https address of your own relay. Leave it empty to use only WhatsApp Web."
+    },
+    {
+      "key": "relay_token",
+      "label": "Relay token",
+      "type": "secret",
+      "description": "The token your relay was deployed with. Stored protected on this computer."
+    },
+    {
+      "key": "relay_private_key",
+      "label": "Relay private key",
+      "type": "secret",
+      "description": "The private.json that relay/keygen.mjs wrote. Only this computer can open what waits in your relay."
+    },
+    {
+      "key": "phone_number_id",
+      "label": "Phone number ID",
+      "type": "text",
+      "description": "Only hear this number, from your Meta app. Empty hears every number the relay receives."
+    }
+  ],
+  "storage": {
+    "migrations": "migrations"
+  },
+  "ui": {
+    "pages": [
+      {
+        "id": "official",
+        "title": "Official connection",
+        "path": "ui/official.html"
+      }
+    ]
+  },
+  "agent": {
+    "skills": [
+      "skills/whatsapp-panel"
     ]
   }
 }

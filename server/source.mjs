@@ -1,0 +1,262 @@
+import { ApiError, Relay } from './http.mjs';
+import { INBOX, OFF } from './ledger.mjs';
+import { messagesOf, renderNotice } from './meta.mjs';
+import { open, privateKey } from '../relay/seal.mjs';
+
+export const POLL_MS = 10_000;
+const MAX_BACKOFF_MS = 5 * 60_000;
+const HEALTH_EVERY = 30; // polls, about every five minutes.
+const STOPPED_NOTE_AFTER_MS = 5 * 60_000;
+export const BUDGET_PER_HOUR = 30;
+const HOUR = 60 * 60_000;
+
+// How a failure reads in the page: what is true and what the person can do.
+const PROBLEMS = {
+  'relay-rejected': 'Your relay refused this computer\'s token, so no messages arrive.',
+  'relay-unreachable': 'New messages cannot reach this computer until your relay answers.',
+  'relay-misconfigured': 'Your relay is missing a secret, so it cannot receive messages.',
+  'key-mismatch': 'This computer\'s private key does not open what your relay keeps. Messages wait there until the keys match.',
+};
+
+export class Source {
+  constructor({ ledger, host, makeRelay = (address, token) => new Relay(address, token), now = Date.now }) {
+    Object.assign(this, { ledger, host, makeRelay, now });
+    this.relay = null;
+    this.phoneNumberId = '';
+    this.state = 'checking';
+    this.lastPollAt = 0;
+    this.lastMessageAt = Number(ledger.get('last_message_at', '0')) || 0;
+    this.health = null;
+    this.failingSince = 0;
+    this.noted = false;
+    this.failures = 0;
+    this.polls = 0;
+    this.sent = [];
+    this.knownDropped = Number(ledger.get('known_dropped', '0')) || 0;
+    this.timer = null;
+  }
+
+  async configure() {
+    const { values = {}, secrets = {} } = await this.host.settings();
+    this.phoneNumberId = String(values.phone_number_id || '').trim();
+    if (!values.relay_url || !secrets.relay_token || !secrets.relay_private_key) { this.relay = null; this.state = 'needs-setup'; return; }
+    this.key = await privateKey(secrets.relay_private_key);
+    this.relay = this.makeRelay(values.relay_url, secrets.relay_token);
+    this.state = 'checking';
+  }
+
+  status() {
+    return {
+      state: this.state,
+      problem: PROBLEMS[this.state] ?? '',
+      lastPollAt: this.lastPollAt,
+      lastMessageAt: this.lastMessageAt,
+      pending: this.health?.pending ?? 0,
+      lastReceivedAt: this.health?.lastReceivedAt ?? 0,
+      dropped: this.health?.dropped ?? 0,
+    };
+  }
+
+  // One look at a time: a person's Check now can land during the timed poll,
+  // and two at once would deliver the same events twice.
+  poll() {
+    if (!this.polling) this.polling = this.pollOnce().finally(() => { this.polling = null; });
+    return this.polling;
+  }
+
+  // Answers whether there may be more right away.
+  async pollOnce() {
+    if (!this.relay) return false;
+    let page;
+    try {
+      // What the relay still holds is what is left to do. No cursor is kept
+      // here: a relay with a new database numbers from 1 again, and a saved
+      // cursor would skip every new message without a word.
+      page = await this.relay.events(0);
+      if (this.polls++ % HEALTH_EVERY === 0) await this.checkHealth();
+    } catch (error) {
+      await this.failed(error);
+      return false;
+    }
+    let upTo = 0;
+    try {
+      for (const event of page.events ?? []) {
+        let value;
+        try { value = JSON.parse(await open(this.key, event.sealed)); }
+        catch {
+          // Not this computer's key. Nothing is lost: what is left stays in the
+          // relay until the keys match.
+          if (upTo) await this.acknowledge(upTo);
+          await this.failed(new ApiError(0, 'sealed'), 'key-mismatch');
+          return false;
+        }
+        await this.handle({ field: event.field, value });
+        upTo = event.seq;
+      }
+    } catch (error) {
+      // COGNIX[WS] itself did not answer. The next poll gets the rest again, and
+      // what was already delivered is not delivered twice.
+      if (upTo) await this.acknowledge(upTo);
+      this.state = 'host-unavailable';
+      this.failures++;
+      return false;
+    }
+    this.lastPollAt = this.now();
+    this.recovered();
+    if (!upTo) return false;
+    await this.acknowledge(upTo);
+    this.ledger.prune(this.now());
+    return (page.events?.length ?? 0) >= 50;
+  }
+
+  // A failed ack only means these events return on the next poll, where the
+  // delivery record stops them from being announced again.
+  async acknowledge(upTo) {
+    try { await this.relay.ack(upTo); }
+    catch { /* See above. */ }
+  }
+
+  async checkHealth() {
+    this.health = await this.relay.health();
+    const dropped = Number(this.health?.dropped) || 0;
+    if (dropped > this.knownDropped) {
+      const lost = dropped - this.knownDropped;
+      try {
+        await this.host.inbox('WhatsApp lost messages in your relay', `${lost} update${lost === 1 ? '' : 's'} could not be kept, because this computer stayed away too long or the update was too large.`);
+        this.knownDropped = dropped;
+        this.ledger.set('known_dropped', dropped);
+      } catch { /* COGNIX[WS] did not answer, not the relay. The next look tries again. */ }
+    }
+  }
+
+  async handle(event) {
+    const messages = messagesOf(event, { phoneNumberId: this.phoneNumberId });
+    const groups = new Map();
+    for (const message of messages) {
+      const group = groups.get(message.contact.key) ?? { contact: message.contact, messages: [] };
+      group.messages.push(message);
+      groups.set(message.contact.key, group);
+    }
+    for (const group of groups.values()) await this.deliver(group);
+  }
+
+  // Decision table in docs/official-source.md.
+  async deliver({ contact, messages }) {
+    const now = this.now();
+    this.ledger.touchContact(contact, now);
+    this.lastMessageAt = now;
+    this.ledger.set('last_message_at', now);
+    const routes = this.ledger.routesFor(contact.ids);
+    if (routes.some(route => route.target === OFF)) {
+      this.ledger.markDelivered(messages.map(message => message.id), OFF, now);
+      return;
+    }
+    // No route: the Inbox, as a count. Each destination keeps its own record,
+    // so a failure halfway repeats nothing for those already told.
+    const pending = (routes.length ? routes : [{ target: INBOX, preview: false }])
+      .map(route => ({ ...route, fresh: messages.filter(message => !this.ledger.delivered(message.id, route.target)) }))
+      .filter(route => route.fresh.length);
+    if (!pending.length) return;
+    // The hourly limit counts messages told, however many destinations hear them.
+    if (!this.spend(now)) {
+      const heldIds = new Set(pending.flatMap(route => route.fresh.map(message => message.id)));
+      this.ledger.addHeld(contact.key, heldIds.size);
+      for (const route of pending) this.ledger.markDelivered(route.fresh.map(message => message.id), route.target, now);
+      return;
+    }
+    const held = this.ledger.heldFor(contact.key);
+    for (const route of pending) await this.tell(route, contact, held, now);
+    this.ledger.clearHeld(contact.key);
+  }
+
+  async tell({ target, preview, fresh }, contact, held, now) {
+    // Text goes only where the owner asked for it, for this contact.
+    const notice = renderNotice({ contact, messages: fresh, preview, held });
+    if (target === INBOX) {
+      await this.host.inbox(notice.title, notice.text);
+    } else {
+      try {
+        await this.host.message(target, notice.text);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status < 400 || error.status >= 500) throw error;
+        // That agent cannot take it (stopped, deleted). The owner still hears,
+        // without the text, since the owner chose an agent to read it.
+        const safe = renderNotice({ contact, messages: fresh, preview: false, held });
+        await this.host.inbox(safe.title, `${safe.text}\nThe agent chosen for this contact could not be reached.`);
+      }
+    }
+    this.ledger.markDelivered(fresh.map(message => message.id), target, now);
+  }
+
+  spend(now) {
+    this.sent = this.sent.filter(at => now - at < HOUR);
+    if (this.sent.length >= BUDGET_PER_HOUR) return false;
+    this.sent.push(now);
+    return true;
+  }
+
+  async failed(error, state = '') {
+    const status = error instanceof ApiError ? error.status : 0;
+    this.state = state || (status === 401 || status === 403 ? 'relay-rejected' : status === 503 ? 'relay-misconfigured' : 'relay-unreachable');
+    this.failures++;
+    const now = this.now();
+    if (!this.failingSince) this.failingSince = now;
+    if (!this.noted && now - this.failingSince >= STOPPED_NOTE_AFTER_MS) {
+      try {
+        await this.host.inbox('WhatsApp stopped receiving', PROBLEMS[this.state]);
+        this.noted = true;
+      } catch { /* The next failing poll tries again. */ }
+    }
+  }
+
+  recovered() {
+    this.state = 'receiving';
+    this.failures = 0;
+    this.failingSince = 0;
+    this.noted = false;
+  }
+
+  delay() {
+    return this.failures ? Math.min(POLL_MS * 2 ** this.failures, MAX_BACKOFF_MS) : POLL_MS;
+  }
+
+  start() {
+    const loop = async () => {
+      let more = false;
+      try { more = await this.poll(); }
+      catch { this.failures++; }
+      if (this.stopped) return;
+      this.timer = setTimeout(loop, more ? 0 : this.delay());
+      this.timer.unref?.();
+    };
+    this.stopped = false;
+    loop();
+  }
+
+  stop() { this.stopped = true; clearTimeout(this.timer); }
+
+  async routesView() {
+    let agents = [];
+    let agentsKnown = true;
+    try { agents = ((await this.host.agents()).agents ?? []).map(({ id, name }) => ({ id, name })); }
+    catch { agentsKnown = false; } // Not knowing is not the same as an agent being gone.
+    return { routes: this.ledger.routes(), contacts: this.ledger.contacts(), agents, agentsKnown };
+  }
+
+  saveRoutes(routes) {
+    if (!Array.isArray(routes)) throw new ApiError(400, 'These destinations could not be read.');
+    const seen = new Set();
+    const clean = routes.map(route => {
+      const contact = String(route?.contact ?? '').trim();
+      const target = String(route?.target ?? '').trim();
+      const key = `${contact}\n${target}`;
+      if (!contact || contact.length > 200 || !target || target.length > 200 || seen.has(key)) throw new ApiError(400, 'Each destination can hear a contact once.');
+      seen.add(key);
+      return { contact, target, preview: route.preview === true && target !== OFF };
+    });
+    const silent = new Set(clean.filter(route => route.target === OFF).map(route => route.contact));
+    if (clean.some(route => silent.has(route.contact) && route.target !== OFF)) throw new ApiError(400, 'A silent contact has no other destination.');
+    this.ledger.replaceRoutes(clean);
+    return clean;
+  }
+}

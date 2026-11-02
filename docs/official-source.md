@@ -13,9 +13,11 @@ The extension opens no port. It only makes outgoing requests, so nothing on
 your computer is reachable from the internet, and no server of ours is in the
 path.
 
-**Status: receiving only, not yet proven against Meta.** The whole path is
-tested with signed events on one computer. A real Meta app has not been
-connected, so the steps below may need adjusting. Sending is not here.
+**Status: receiving only.** Proven on 2 November 2026 with a real Meta app and
+test number: a phone's message reached the relay in about 4 seconds and the
+Inbox of an isolated COGNIX[WS], including after waiting in the relay until the
+extension started. Delivery to a running agent and Meta's retries were not
+exercised. Sending is not here.
 
 ## Who does what
 
@@ -44,13 +46,26 @@ Node.js 24. Use your company's accounts for a company number.
    npx wrangler secret put RELAY_TOKEN
    ```
 3. Deploy with `npx wrangler deploy` from `relay/`, and note the address.
-4. In the Meta app, under WhatsApp ▸ Configuration, set the callback URL to
-   `<relay address>/webhook` and the verify token to `VERIFY_TOKEN`. Subscribe to
-   the `messages` field.
-5. In COGNIX[WS], turn the extension on in at least one workspace (its process
+4. Create the Meta app with the WhatsApp use case, in your business portfolio.
+   In the use case's **Step 1. Try it out**, claim the test number and note its
+   phone number ID and account ID.
+5. Point Meta at the relay. With the app's id and secret:
+   ```
+   curl -X POST "https://graph.facebook.com/v25.0/<APP_ID>/subscriptions" \
+     -d object=whatsapp_business_account -d fields=messages \
+     -d callback_url=<relay address>/webhook -d verify_token=<VERIFY_TOKEN> \
+     -d access_token=<APP_ID>\|<APP_SECRET>
+   ```
+6. Subscribe the WhatsApp account to the app. Without this, Meta delivers nothing.
+   Use a token from **Generate token**, and choose only the account you need:
+   ```
+   curl -X POST "https://graph.facebook.com/v25.0/<ACCOUNT_ID>/subscribed_apps" \
+     -H "Authorization: Bearer <TOKEN>"
+   ```
+7. In COGNIX[WS], turn the extension on in at least one workspace (its process
    runs while it is on somewhere), open its settings, and enter the relay address
    and `RELAY_TOKEN`. Saving checks them against the relay.
-6. Open the **Official connection** page. It should say Receiving. Send a message to
+8. Open the **Official connection** page. It should say Receiving. Send a message to
    the number; the person appears there to be given a route.
 
 ## What happens to a message
@@ -101,9 +116,10 @@ notice. A repeated notice is preferred over a lost one.
 
 ## Limits
 
-- A contact who adopted a WhatsApp username can arrive with a business-scoped id
-  and no phone number. Routes match either, but the same person can appear as a
-  new contact when their ids change.
+- A real event carries a phone number and a business-scoped id (`user_id`). A
+  contact who adopted a WhatsApp username can arrive with the id alone. Routes
+  match either, but the same person can appear as a new contact when their ids
+  change.
 - Messages arrive in about 10 seconds, the polling interval. About 8,640 requests
   a day stay inside Cloudflare's free plan as of November 2026.
 - Connecting a real number to the API has effects on the WhatsApp app and linked

@@ -44,9 +44,9 @@ WhatsApp side stays readable in one place.
 
 ## Official source
 
-- [ ] Prove the path against a real Meta app and test number: time to the
-      Inbox, event shapes, computer off, Meta's retries. Then correct
-      `docs/official-source.md`.
+- [x] Prove the path against a real Meta app and test number: time to the
+      relay, event shape, and waiting in the relay until the extension started.
+- [ ] Measure Meta's retries when the relay is down.
 - [ ] Deliver to a running agent end to end. Tested with a fake host and with a
       refused agent, not yet with a live one.
 - [ ] Sending, with the owner's approval on each message and the 24-hour window.

@@ -29,6 +29,11 @@ WhatsApp side stays readable in one place.
       the page exposes one).
 - [ ] Mentions: a separate signal when the account is mentioned in a group.
 
+- [x] Say when the page stops noticing messages (QR code asked again, page
+      changed): `recipe/attention.js`, 2026-11-02.
+- [ ] Say when nothing can notice at all (desktop app closed, page crashed):
+      only COGNIX[WS] can see that the page went silent.
+
 ## Agents
 
 - [ ] Let an agent subscribe itself to a chat ("tell me when the group X

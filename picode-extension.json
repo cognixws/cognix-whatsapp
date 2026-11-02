@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "apiVersion": 9,
   "publisher": "cognixws",
   "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
@@ -26,7 +26,8 @@
             ],
             "scripts": [
               "recipe/back.js",
-              "recipe/signals.js"
+              "recipe/signals.js",
+              "recipe/attention.js"
             ]
           },
           "signals": [
@@ -38,6 +39,14 @@
                 "count"
               ],
               "text": "{count} unread in {chat}"
+            },
+            {
+              "id": "attention",
+              "title": "Needs you",
+              "fields": [
+                "reason"
+              ],
+              "text": "WhatsApp needs you: {reason}"
             }
           ]
         }

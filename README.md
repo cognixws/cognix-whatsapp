@@ -101,6 +101,11 @@ WhatsApp back to the app strip; there, its × hides it while it keeps running.
   reports them with `picode.badge` (the tile count) and `picode.signal`
   (a chat with new messages). COGNIX[WS] checks each signal against what the
   manifest declares and delivers it where you chose.
+- `recipe/attention.js` tells you once when the page can no longer notice
+  messages: WhatsApp asks for the QR code again, or its page changed so that
+  the chat list cannot be read. It goes where the notes go, as "WhatsApp needs
+  you: …", and to the agents that hear every chat, not to those limited to
+  some chats.
 
 COGNIX[WS] applies the recipe before every page of the app loads, so a
 reload, closing the panel or restarting the app keep it. The scripts read no
@@ -115,7 +120,7 @@ extension.
 | A chat never reaches its Assistant | Check the chat's name in Notifications… matches the name in WhatsApp's list |
 | "WhatsApp's notifications cannot reach COGNIX[WS]: …" | Update COGNIX[WS]; the message names what failed |
 | The tab says "recipe out of date" | WhatsApp changed its page; update the extension, or ask an agent to adjust the layout and `adjust save` it |
-| WhatsApp asks for the QR code again | Your phone unlinked the device; link it again |
+| WhatsApp asks for the QR code again | Your phone unlinked the device; link it again. You get "WhatsApp needs you" about 30 seconds after it happens |
 
 ## Use and WhatsApp's terms
 

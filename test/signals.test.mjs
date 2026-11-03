@@ -95,6 +95,44 @@ test('somebody writing into an open chat is news with no unread count, and my ow
   assert.equal(signals.length, 1, 'a rename is the same chat');
 });
 
+test('a script that starts before the document still notices messages', () => {
+  // Like WhatsApp after a reload: no root element yet, and storage refuses.
+  let ready = false;
+  const storage = { 'picode-whatsapp-seen-v2': JSON.stringify({ '7@lid': { c: 0, t: 100 } }) };
+  const row = {
+    __reactFiber$x: { return: { memoizedProps: { data: { data: { id: { _serialized: '7@lid' }, contact: {}, msgs: { last: () => ({ t: 200, id: { fromMe: false }, type: 'chat', body: 'oi' }) } } } } } },
+    querySelector: sel => (sel.includes('secondary') ? null : { getAttribute: () => '+55 11 90000-0000' }),
+    querySelectorAll: () => [{ getAttribute: () => '1 mensagem não lida' }],
+  };
+  const side = { querySelectorAll: () => [row] };
+  const signals = [];
+  const observers = [];
+  vm.runInNewContext(source, {
+    localStorage: {
+      getItem: k => { if (!ready) throw new Error('SecurityError: Access is denied for this document.'); return storage[k] ?? null; },
+      setItem: (k, v) => { if (!ready) throw new Error('SecurityError'); storage[k] = v; },
+    },
+    document: {
+      title: 'WhatsApp',
+      get documentElement() { return ready ? {} : null; },
+      getElementById: () => (ready ? side : null),
+      querySelector: () => (ready ? {} : null),
+    },
+    window: { picode: { signal: (n, d) => signals.push(d), badge() {}, chats() {} } },
+    MutationObserver: class {
+      constructor(f) { this.f = f; observers.push(this); }
+      observe(target) { if (!target) throw new TypeError("Failed to execute 'observe' on 'MutationObserver'"); }
+      disconnect() {}
+    },
+    queueMicrotask: f => f(), setInterval() {}, Map, Object, JSON, Number, Set, Math,
+  });
+  ready = true;
+  observers[0].f();
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].count, 1);
+  assert.equal(signals[0].id, '7@lid');
+});
+
 test('a last message that loads late after a reload is not news', () => {
   const storage = {};
   const row = (m, unread) => ({

@@ -8,8 +8,26 @@
   // "3 mensagens não lidas", "1 unread message", … : the number counts, the
   // words depend on WhatsApp's language.
   const UNREAD = /^(\d+)\s.*(lid|unread|non lu|no le[ií]d|ungelesen)/i;
-  const seen = new Map(); // chat name -> unread count last seen
-  let primed = false;
+  // Chat name -> unread count last seen. Kept across reloads, in this session's own
+  // storage on this computer, so a message that arrived while the page was down is
+  // still news and an old unread one is not news twice.
+  const KEY = 'picode-whatsapp-seen';
+  const load = () => {
+    try {
+      const raw = localStorage.getItem(KEY);
+      return raw ? new Map(Object.entries(JSON.parse(raw))) : null;
+    } catch { return null; }
+  };
+  const remembered = load();
+  const seen = remembered || new Map();
+  // With nothing remembered (a new session), the first look only learns.
+  let primed = !!remembered;
+  let dirty = false;
+  const save = () => {
+    if (!dirty) return;
+    dirty = false;
+    try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(seen))); } catch { /* lasts until a reload */ }
+  };
   let lastBadge = -1;
 
   const unreadOf = (row) => {
@@ -37,14 +55,14 @@
       if (!chat) continue;
       const count = unreadOf(row);
       const before = seen.get(chat);
-      seen.set(chat, count);
-      // The first look only learns what is there; a row scrolled back into
-      // view with the same count is not news.
-      if (primed && count > 0 && (before === undefined ? true : count > before)) {
+      if (before !== count) { seen.set(chat, count); dirty = true; }
+      // A row scrolled back into view with the same count is not news.
+      if (primed && count > (before || 0)) {
         window.picode.signal("message", { chat, count });
       }
     }
     primed = true;
+    save();
     offerChats();
   };
 

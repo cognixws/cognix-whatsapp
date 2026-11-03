@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "apiVersion": 9,
   "publisher": "cognixws",
   "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
@@ -36,7 +36,10 @@
               "title": "New message",
               "fields": [
                 "chat",
-                "count"
+                "count",
+                "id",
+                "phone",
+                "preview"
               ],
               "text": "{count} unread in {chat}"
             },

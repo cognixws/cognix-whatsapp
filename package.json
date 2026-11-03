@@ -1,6 +1,6 @@
 {
   "name": "picode-whatsapp",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.0.0" },

@@ -18,10 +18,17 @@
       return raw ? new Map(Object.entries(JSON.parse(raw))) : null;
     } catch { return null; }
   };
-  const remembered = load();
-  const seen = remembered || new Map(); // chat id -> { c: unread count, t: last message's time }
+  // Read at the first look, not now: the script can start before the page has a
+  // document, when storage refuses to be read (seen live 2026-11-03).
+  let seen = null; // chat id -> { c: unread count, t: last message's time }
   // With nothing remembered (a new session), the first look only learns.
-  let primed = !!remembered;
+  let primed = false;
+  const recall = () => {
+    if (seen) return;
+    const remembered = load();
+    seen = remembered || new Map();
+    primed = !!remembered;
+  };
   let dirty = false;
   let lastBadge = -1;
   const known = new Map(); // chat id -> what the picker in Notifications… offers
@@ -87,6 +94,7 @@
     }
     const side = document.getElementById("pane-side");
     if (!side) return;
+    recall();
     // The chat list is a grid of rows (role="row"); older builds used
     // list items.
     for (const row of side.querySelectorAll('[role="row"], [role="listitem"]')) {
@@ -153,6 +161,8 @@
   // The chat list appears after sign-in and after WhatsApp's own loading.
   if (!watch()) {
     const wait = new MutationObserver(() => { if (watch()) wait.disconnect(); });
-    wait.observe(document.documentElement, { childList: true, subtree: true });
+    // The document itself: a script that starts with the page has no root
+    // element yet, and observing none threw and stopped every script after it.
+    wait.observe(document, { childList: true, subtree: true });
   }
 })();

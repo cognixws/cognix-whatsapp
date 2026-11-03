@@ -98,13 +98,18 @@
       const last = lastOf(model);
       const lastT = last ? last.t : 0;
       const before = seen.get(id);
-      if (!before || before.c !== count || before.t !== lastT) { seen.set(id, { c: count, t: lastT }); dirty = true; }
+      // The newest message ever seen, never an older one: right after a load
+      // WhatsApp can list a chat before its last message is in, and the true one
+      // arriving later would read as new (seen live 2026-11-03).
+      const newest = Math.max(before ? before.t || 0 : 0, lastT);
+      if (!before || before.c !== count || before.t !== newest) { seen.set(id, { c: count, t: newest }); dirty = true; }
       known.set(id, { id, name: chat, phone: phoneOf(model) });
       if (!primed) continue;
       // More unread, or somebody wrote into a chat that is open, where the count
       // stays at zero. A row scrolled back into view with the same state is not news.
       const more = count > (before ? before.c : 0);
-      const wrote = !!(before && before.t && last && last.incoming && lastT > before.t);
+      // Only an open chat, whose count stays at zero: a closed one says it by its count.
+      const wrote = !!(count === 0 && before && before.t && last && last.incoming && lastT > before.t);
       if (more || wrote) {
         window.picode.signal("message", { chat, count: Math.max(count, 1), id, phone: phoneOf(model), preview: previewOf(row, last) });
       }

@@ -22,7 +22,7 @@ function page(storage) {
     MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
     queueMicrotask: f => f(),
     setInterval() {},
-    Map, Object, JSON, Number, Set,
+    Map, Object, JSON, Number, Set, Math,
   };
   return { rows, signals, run: () => vm.runInNewContext(source, sandbox), change: () => observers[0]() };
 }
@@ -79,7 +79,7 @@ test('somebody writing into an open chat is news with no unread count, and my ow
     document: { title: 'WhatsApp', documentElement: {}, getElementById: () => ({ querySelectorAll: () => [current] }), querySelector: () => ({}) },
     window: { picode: { signal: (n, d) => signals.push(d), badge() {}, chats() {} } },
     MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
-    queueMicrotask: f => f(), setInterval() {}, Map, Object, JSON, Number, Set,
+    queueMicrotask: f => f(), setInterval() {}, Map, Object, JSON, Number, Set, Math,
   });
   assert.deepEqual(signals, []);
   current = row('Bia', chat({ t: 200, id: { fromMe: true }, type: 'chat', body: 'mine' }));
@@ -93,6 +93,34 @@ test('somebody writing into an open chat is news with no unread count, and my ow
   current = row('Bia Lima', chat({ t: 300, id: { fromMe: false }, type: 'chat', body: 'y' }));
   observers[0]();
   assert.equal(signals.length, 1, 'a rename is the same chat');
+});
+
+test('a last message that loads late after a reload is not news', () => {
+  const storage = {};
+  const row = (m, unread) => ({
+    __reactFiber$x: { return: { memoizedProps: { data: { data: { id: { _serialized: '9@lid' }, contact: {}, msgs: { last: () => m } } } } } },
+    querySelector: sel => (sel.includes('secondary') ? null : { getAttribute: () => 'Carlos' }),
+    querySelectorAll: () => (unread ? [{ getAttribute: () => `${unread} unread messages` }] : []),
+  });
+  const run = (first) => {
+    let current = first;
+    const signals = [];
+    const observers = [];
+    vm.runInNewContext(source, {
+      localStorage: { getItem: k => storage[k] ?? null, setItem: (k, v) => { storage[k] = v; } },
+      document: { title: 'WhatsApp', documentElement: {}, getElementById: () => ({ querySelectorAll: () => [current] }), querySelector: () => ({}) },
+      window: { picode: { signal: (n, d) => signals.push(d), badge() {}, chats() {} } },
+      MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
+      queueMicrotask: f => f(), setInterval() {}, Map, Object, JSON, Number, Set, Math,
+    });
+    return { signals, set: (r) => { current = r; observers[0](); } };
+  };
+  const newest = { t: 300, id: { fromMe: false }, type: 'chat', body: 'c' };
+  const older = { t: 100, id: { fromMe: false }, type: 'chat', body: 'a' };
+  run(row(newest, 3));
+  const after = run(row(older, 3));
+  after.set(row(newest, 3));
+  assert.deepEqual(after.signals, []);
 });
 
 test('a contact first seen with unread messages is news, and not twice', () => {

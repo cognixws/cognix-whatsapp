@@ -22,7 +22,7 @@ function page(storage) {
     MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
     queueMicrotask: f => f(),
     setInterval() {},
-    Map, Object, JSON, Number,
+    Map, Object, JSON, Number, Set,
   };
   return { rows, signals, run: () => vm.runInNewContext(source, sandbox), change: () => observers[0]() };
 }
@@ -61,6 +61,38 @@ test('reading it clears it, so the next message is news again', () => {
   p.rows.set('Family', 1);
   p.change();
   assert.equal(p.signals.length, 1);
+});
+
+test('somebody writing into an open chat is news with no unread count, and my own message is not', () => {
+  const storage = {};
+  const row = (name, m) => ({
+    __reactFiber$x: { return: { memoizedProps: { data: { data: m } } } },
+    querySelector: sel => (sel.includes('secondary') ? { getAttribute: () => 'Bia: oi' } : { getAttribute: () => name }),
+    querySelectorAll: () => [],
+  });
+  const chat = t => ({ id: { _serialized: '123@lid' }, contact: { phoneNumber: { _serialized: '5511988887777@c.us' } }, msgs: { last: () => t }, });
+  let current = row('Bia', chat({ t: 100, id: { fromMe: false }, type: 'chat', body: 'x' }));
+  const signals = [];
+  const observers = [];
+  vm.runInNewContext(source, {
+    localStorage: { getItem: k => storage[k] ?? null, setItem: (k, v) => { storage[k] = v; } },
+    document: { title: 'WhatsApp', documentElement: {}, getElementById: () => ({ querySelectorAll: () => [current] }), querySelector: () => ({}) },
+    window: { picode: { signal: (n, d) => signals.push(d), badge() {}, chats() {} } },
+    MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
+    queueMicrotask: f => f(), setInterval() {}, Map, Object, JSON, Number, Set,
+  });
+  assert.deepEqual(signals, []);
+  current = row('Bia', chat({ t: 200, id: { fromMe: true }, type: 'chat', body: 'mine' }));
+  observers[0]();
+  assert.deepEqual(signals, [], 'my own message');
+  current = row('Bia', chat({ t: 300, id: { fromMe: false }, type: 'chat', body: 'y' }));
+  observers[0]();
+  observers[0]();
+  assert.equal(signals.length, 1);
+  assert.deepEqual({ ...signals[0] }, { chat: 'Bia', count: 1, id: '123@lid', phone: '5511988887777', preview: 'Bia: oi' });
+  current = row('Bia Lima', chat({ t: 300, id: { fromMe: false }, type: 'chat', body: 'y' }));
+  observers[0]();
+  assert.equal(signals.length, 1, 'a rename is the same chat');
 });
 
 test('a contact first seen with unread messages is news, and not twice', () => {

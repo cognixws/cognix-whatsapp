@@ -44,9 +44,14 @@ agent's **Open beside** menu.
 
    Save. The Inbox and the people you added are independent: you can turn the
    Inbox off and keep an Assistant hearing one group.
+4. **Allow chats by id.** Open a chat and choose **Allow** followed by its
+   phone number, or **Allow group** followed by the group id. A name is not
+   enough, and a chat that has no number yet cannot be allowed. Only an
+   allowed chat produces a note. **Remove** takes it off the list.
 
 The tile shows how many chats have unread messages, also while the app is
-hidden.
+hidden. A chat that is not allowed does not produce a note, so after this
+version the notes stay quiet until you allow the chats you want.
 
 ## What an Assistant or an agent receives
 
@@ -72,7 +77,9 @@ and the next note after a pause says how many were held back.
 ## What an agent can do in the panel
 
 The `whatsapp-panel` skill teaches an agent to read, send and handle media in the
-panel, and asks for your OK on each message sent.
+panel. A send is refused unless that chat is allowed and has written to you
+first. The page then asks you to confirm that exact text, and one confirmation
+sends once. See [docs/send-guards.md](docs/send-guards.md).
 
 ## The official source
 
@@ -102,9 +109,12 @@ WhatsApp back to the app strip; there, its × hides it while it keeps running.
 - `recipe/back.js` adds the arrow that goes from a conversation back to the
   list (it sends Esc to WhatsApp).
 - `recipe/signals.js` watches the chat list's names and unread counts and
-  reports them with `picode.badge` (the tile count) and `picode.signal`
-  (a chat with new messages). COGNIX[WS] checks each signal against what the
-  manifest declares and delivers it where you chose.
+  reports an allowed chat with `picode.badge` (the tile count) and
+  `picode.signal` (a chat with new messages). COGNIX[WS] checks each signal
+  against what the manifest declares and delivers it where you chose.
+- `recipe/guard.js` allows chats by phone number or group id, drops every
+  other chat before its text is reported, and refuses a send that would write
+  first or that you have not confirmed.
 - `recipe/attention.js` tells you once when the page can no longer notice
   messages: WhatsApp asks for the QR code again, or its page changed so that
   the chat list cannot be read. It goes where the notes go, as "WhatsApp needs
@@ -121,7 +131,7 @@ extension.
 | You see | Do this |
 |---|---|
 | No notes at all | Check Keep running is on and the desktop app is open; open the tile's Notifications… and check the Inbox box or a route is set |
-| A chat never reaches its Assistant | Check the chat's name in Notifications… matches the name in WhatsApp's list |
+| A chat never reaches its Assistant | Open the chat and Allow its number or group id. Notifications… still chooses who hears an allowed chat |
 | "WhatsApp's notifications cannot reach COGNIX[WS]: …" | Update COGNIX[WS]; the message names what failed |
 | The tab says "recipe out of date" | WhatsApp changed its page; update the extension, or ask an agent to adjust the layout and `adjust save` it |
 | WhatsApp asks for the QR code again | Your phone unlinked the device; link it again. You get "WhatsApp needs you" about 30 seconds after it happens |
@@ -133,7 +143,8 @@ tells you about new messages. How you and your agents use your account is
 governed by
 [WhatsApp's Terms of Service](https://www.whatsapp.com/legal/terms-of-service),
 which restrict automated and bulk messaging and non-personal use. Notifications
-only tell; an agent should reply only when you ask it to.
+only tell about chats you allowed. An agent can reply only in a chat that
+wrote first, and only after you confirm that exact message.
 
 ## Backlog
 

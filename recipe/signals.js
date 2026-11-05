@@ -2,7 +2,8 @@
 // gets new messages, and how many chats are unread for the app's tile.
 // It reads the chat list: each chat's name, id, number, unread count and last
 // line. It sends nothing anywhere else: picode.signal and picode.badge hand them
-// to COGNIX[WS], which delivers the last line only to an agent you allowed.
+// to COGNIX[WS]. A chat that is not allowed by phone number or group id is not
+// reported at all, so its text is never handed on (recipe/guard.js).
 (() => {
   if (!window.picode) return;
   // "3 mensagens não lidas", "1 unread message", … : the number counts, the
@@ -112,6 +113,19 @@
       const newest = Math.max(before ? before.t || 0 : 0, lastT);
       if (!before || before.c !== count || before.t !== newest) { seen.set(id, { c: count, t: newest }); dirty = true; }
       known.set(id, { id, name: chat, phone: phoneOf(model) });
+      // Unlisted chats are dropped here, before a notice and before the text
+      // exists anywhere but on WhatsApp's own page. The "has written" mark is
+      // only the id and the time, so a later allow still knows not to write first.
+      const gate = globalThis.__picodeWhatsappPolicy;
+      if (gate) {
+        const identity = gate.identityOf(model, chat);
+        if (identity && last && last.incoming) gate.markWrote(identity.key, last.t);
+        const inbound = gate.inboundDecision({
+          allowed: !!(identity && gate.allows(identity.key)),
+          kind: identity ? identity.kind : '',
+        });
+        if (!inbound.keep) continue;
+      }
       if (!primed) continue;
       // More unread, or somebody wrote into a chat that is open, where the count
       // stays at zero. A row scrolled back into view with the same state is not news.
@@ -124,6 +138,8 @@
     }
     primed = true;
     save();
+    const gate = globalThis.__picodeWhatsappPolicy;
+    if (gate && gate.migratePending) gate.migratePending([...known.values()]);
     offerChats();
   };
 

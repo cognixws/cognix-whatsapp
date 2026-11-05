@@ -13,7 +13,9 @@ The extension opens no port. It only makes outgoing requests, so nothing on
 your computer is reachable from the internet, and no server of ours is in the
 path.
 
-**Status: receiving only.** Proven on 2 November 2026 with a real Meta app and
+**Status: receiving only.** The personal number's allow-list, the rule against
+writing first, and the per-message confirmation are the panel's, in
+[send-guards.md](send-guards.md). This source cannot send. Proven on 2 November 2026 with a real Meta app and
 test number: a phone's message reached the relay in about 4 seconds and the
 Inbox of an isolated COGNIX[WS], including after waiting in the relay until the
 extension started. Delivery to a running agent and Meta's retries were not

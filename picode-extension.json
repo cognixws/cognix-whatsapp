@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "apiVersion": 9,
   "publisher": "cognixws",
   "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
@@ -25,6 +25,7 @@
               "#side"
             ],
             "scripts": [
+              "recipe/guard.js",
               "recipe/back.js",
               "recipe/signals.js",
               "recipe/attention.js"

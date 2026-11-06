@@ -5,7 +5,11 @@
 // 1. A chat is allowed by its phone number or its group id, never by the name
 //    WhatsApp shows. Anything else is dropped before a notice is sent.
 // 2. Nothing is sent to a chat that has not written first.
-// 3. A send still needs a confirmation of that exact text, every time.
+// 3. A send still needs the person's OK for that exact text. From 0.8.0, with
+//    COGNIX[WS]'s door O (picode.ask, ADR-0403), the OK is a card in the
+//    COGNIX[WS] Inbox or a permission the person gave there: the page holds
+//    the send, asks, and sends that text once when the answer is yes. An
+//    older COGNIX[WS] keeps the confirmation in this page.
 //
 // The official source does not send and is not this file. No message body is
 // written to storage: the allow-list and the "has written" map are ids and times.
@@ -27,6 +31,11 @@
     never_write_first: 'This chat has not written yet. Nothing is sent first.',
     no_stable_id: 'This chat has no phone number or group id, so nothing is sent.',
     needs_ok: 'Send this exact message?',
+    // Door O (0.8.0): the lines the page shows while COGNIX[WS] decides.
+    waiting: 'Waiting for your OK in COGNIX[WS].',
+    denied: 'Not sent: the person declined.',
+    changed: 'Not sent: the message changed before the OK. Press Enter to ask again.',
+    error: 'Not sent: COGNIX[WS] could not be asked.',
   };
 
   function validKey(kind, key) {
@@ -781,12 +790,182 @@
     host.prepend(bar);
   }
 
+  // ---- Door O (0.8.0): ask COGNIX[WS], send once on its yes.
+  function askDoor() {
+    const p = globalThis.picode;
+    return p && p.v >= 4 && typeof p.ask === 'function' && typeof p.on === 'function' && typeof p.outcome === 'function' ? p : null;
+  }
+
+  // hold: the send waiting for COGNIX[WS] ({key, text, requestId, item}).
+  // release: the one send COGNIX[WS] allowed, let through when Enter comes
+  // with that chat and that text.
+  let hold = null;
+  let release = null;
+  const ASK_TIMEOUT_MS = 15000;
+  let listening = false;
+  let lineTimer = null;
+
+  function untilWords(until) {
+    if (!until) return '';
+    if (until === 'always') return ' (allowed always)';
+    const d = new Date(until);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    const today = new Date();
+    const time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return d.toDateString() === today.toDateString() ? ' (allowed until ' + time + ')' : ' (allowed until ' + (d.getMonth() + 1) + '/' + d.getDate() + ' ' + time + ')';
+  }
+
+  function showLine(kind, words, cancel) {
+    api.notice = { reason: kind, key: hold ? hold.key : '', text: '', confirm: false, line: words };
+    renderLine(words, cancel);
+    if (lineTimer && typeof clearTimeout === 'function') clearTimeout(lineTimer);
+    lineTimer = null;
+    if (kind === 'sent' && typeof setTimeout === 'function') lineTimer = setTimeout(() => { if (api.notice && api.notice.reason === 'sent') clearNotice(); }, 8000);
+  }
+
+  function renderLine(words, cancel) {
+    const doc = globalThis.document;
+    if (!doc || !doc.createElement) return;
+    const old = doc.getElementById && doc.getElementById('picode-wa-send-ok');
+    if (old && old.remove) old.remove();
+    const footer = doc.querySelector && doc.querySelector('#main footer');
+    const host = footer || doc.body;
+    if (!host || !host.prepend) return;
+    const bar = doc.createElement('div');
+    bar.id = 'picode-wa-send-ok';
+    bar.setAttribute('data-picode-wa', '1');
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;margin:0;padding:6px 12px;background:rgba(127,127,127,.12);color:inherit;font:inherit;font-size:13px;';
+    const line = doc.createElement('p');
+    line.style.cssText = 'flex:1 1 auto;margin:0;';
+    line.textContent = words;
+    bar.append(line);
+    if (cancel) {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-picode-wa', '1');
+      button.textContent = 'Cancel';
+      button.style.cssText = 'height:28px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer;';
+      button.addEventListener('click', (e) => { block(e); hold = null; clearNotice(); });
+      bar.append(button);
+    }
+    host.prepend(bar);
+  }
+
+  function lastInboundMs(st, key) {
+    const t = Number(st && st.wrote && st.wrote[key]) || 0;
+    return t > 0 && t < 1e12 ? t * 1000 : t;
+  }
+
+  function listen(door) {
+    if (listening) return;
+    listening = true;
+    door.on('verdict', (v) => onVerdict(v));
+  }
+
+  // ask files the request; the first answer comes back on the Promise, a
+  // later one (after a card) on picode.on("verdict").
+  function ask(door, ident, text) {
+    listen(door);
+    hold = { key: ident.key, text, requestId: '', item: '' };
+    const mine = hold;
+    showLine('waiting', SENTENCE.waiting, true);
+    let p;
+    try {
+      p = door.ask('send', { subject: ident.key, name: ident.name || '', text, attachments: 0, lastInboundAt: lastInboundMs(state(), ident.key), wroteFirst: wroteFirst(state(), ident.key) });
+    } catch { p = null; }
+    if (!p || typeof p.then !== 'function') { if (hold === mine) { hold = null; showLine('error', SENTENCE.error); } return; }
+    p.then((v) => { if (hold === mine && !mine.requestId && v) mine.requestId = v.requestId; onVerdict(v); }, () => { if (hold === mine) { hold = null; showLine('error', SENTENCE.error); } });
+    // No first answer at all: COGNIX[WS] is not listening to this page.
+    if (typeof setTimeout === 'function') setTimeout(() => { if (hold === mine && !mine.requestId) { hold = null; showLine('error', SENTENCE.error); } }, ASK_TIMEOUT_MS);
+  }
+
+  function onVerdict(v) {
+    if (!v || !v.requestId) return;
+    const door = askDoor();
+    if (!hold || (hold.requestId && hold.requestId !== v.requestId)) {
+      // A yes for a request this page no longer holds (reloaded, cancelled,
+      // asked again): nothing is sent, and the card says so.
+      if (v.verdict === 'send' && door) door.outcome(v.requestId, 'lost', v.item || '');
+      return;
+    }
+    hold.requestId = v.requestId;
+    if (v.item) hold.item = v.item;
+    if (v.verdict === 'wait') { showLine('waiting', SENTENCE.waiting, true); return; }
+    const was = hold;
+    hold = null;
+    if (v.verdict === 'deny') { showLine('denied', SENTENCE.denied); clearComposer(); return; }
+    if (v.verdict === 'refuse') {
+      const key = v.reason === 'not_allowed' ? 'chat_not_allowed' : v.reason === 'never_write_first' ? 'never_write_first' : '';
+      showLine('refused', key ? SENTENCE[key] : (v.why ? 'Not sent: ' + v.why : SENTENCE.error));
+      return;
+    }
+    if (v.verdict !== 'send') return;
+    const ident = currentIdentity();
+    const text = openComposerText();
+    if (!ident || ident.key !== was.key || text !== was.text) {
+      if (door) door.outcome(v.requestId, 'lost', was.item || v.item || '');
+      showLine('changed', SENTENCE.changed);
+      return;
+    }
+    release = { key: was.key, text: was.text, requestId: v.requestId, item: was.item || v.item || '', until: v.until || '' };
+    const box = composerNode();
+    if (box && box.dispatchEvent && typeof KeyboardEvent === 'function') {
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+    }
+    if (release) {
+      // Enter did not reach the composer: nothing went out.
+      if (door) door.outcome(release.requestId, 'lost', release.item);
+      release = null;
+      showLine('changed', SENTENCE.changed);
+    }
+  }
+
+  function clearComposer() {
+    try {
+      const box = composerNode();
+      const doc = globalThis.document;
+      if (!box || !doc || typeof doc.execCommand !== 'function') return;
+      if (box.focus) box.focus();
+      doc.execCommand('selectAll', false);
+      doc.execCommand('delete', false);
+    } catch { /* the text stays; the line says it was not sent */ }
+  }
+
+  // passAsk: Enter or the send button, with COGNIX[WS] deciding. Answers
+  // true when the send may go through now.
+  function passAsk(door, e, text) {
+    const ident = currentIdentity();
+    if (release && ident && release.key === ident.key && release.text === text) {
+      const r = release;
+      release = null;
+      door.outcome(r.requestId, 'sent', r.item);
+      showLine('sent', 'Sent' + untilWords(r.until) + '.');
+      return true;
+    }
+    const decision = sendDecision({
+      allowed: !!(ident && allows(state(), ident.key)),
+      wroteFirst: !!(ident && wroteFirst(state(), ident.key)),
+      ok: true,
+      kind: ident ? ident.kind : '',
+      text,
+    });
+    block(e);
+    if (!decision.send) { showNotice(decision, text, ident); return false; }
+    if (hold && hold.key === ident.key && hold.text === text) { showLine('waiting', SENTENCE.waiting, true); return false; }
+    ask(door, ident, text);
+    return false;
+  }
+
   function onKeyDown(e) {
     if (!e || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     const composer = composerOf(e.target);
     if (!composer) return;
     const text = textOf(composer);
     if (!String(text).trim()) return;
+    const door = askDoor();
+    if (door) { passAsk(door, e, text); return; }
     const ident = currentIdentity();
     const decision = considerSend(state(), ident, text, grant);
     if (decision.send) {
@@ -802,6 +981,8 @@
     if (!e || !isSendControl(e.target)) return;
     const text = openComposerText();
     if (!String(text).trim()) return;
+    const door = askDoor();
+    if (door) { passAsk(door, e, text); return; }
     const ident = currentIdentity();
     const decision = considerSend(state(), ident, text, grant);
     if (decision.send) {
@@ -906,7 +1087,8 @@
   const api = {
     identityOf, phoneOf, sendDecision, inboundDecision, releaseInbound, considerSend, migrateNames,
     createState, allows, allow, disallow, markWrote, wroteFirst, validKey, joinHost, takeHostList,
-    state, install, onKeyDown, onClick, onConfirm, isSendControl, composerOf,
+    state, install, onKeyDown, onClick, onConfirm, isSendControl, composerOf, onVerdict,
+    held: () => (hold ? { key: hold.key, text: hold.text, requestId: hold.requestId } : null),
     drawerPhone: (name, model) => drawerPhone(globalThis.document, name, model),
     setReader: (fn) => { reader = fn; },
     reload: () => { current = null; memory = null; },

@@ -10,7 +10,7 @@ phone number or business id, and it never stores message text
 |---|---|
 | Allowed chat | A person is allowed by phone number. A group is allowed by its group id. The name WhatsApp shows is not an id. |
 | Wrote first | On this personal number, nothing is sent to a chat that has not written first. |
-| Confirm the text | Every send still needs a confirmation of that exact text. One confirmation sends once. |
+| Confirm the text | Every send still needs the person's OK for that exact text. One OK sends once. From 0.8.0 the OK is a card in COGNIX[WS], or a permission the person gave there for that agent and chat. |
 
 Open the chat and use **Allow** followed by the number or the group id. **Remove**
 takes it off the list. A chat whose phone number WhatsApp does not have, and
@@ -64,6 +64,27 @@ Entering in the composer, or the send button, hits this table before WhatsApp
 writes. Shift+Enter stays a newline. The confirmation shows the exact text and
 the id. **Send** there is the confirmation; **Cancel** drops it. The next send
 needs its own confirmation.
+
+## The OK in COGNIX[WS] (0.8.0)
+
+With COGNIX[WS]'s door O (`picode.ask`, ADR-0403) the confirmation bar is
+gone. Enter (or the send button) runs the first two rows of the table above
+in the page; a chat that passes them is held, and the page asks COGNIX[WS]
+`send` with the chat's id, the exact text, whether it wrote first and when it
+last wrote. COGNIX[WS] decides from who is using the panel:
+
+| COGNIX[WS] answers | The page |
+|---|---|
+| send (the person typed it, or a permission covers it) | Lets that Enter through once and shows "Sent." or "Sent (allowed until …)." |
+| wait (a card is in the Inbox) | Shows "Waiting for your OK in COGNIX[WS]." with Cancel; Enter again does not ask twice |
+| send, later (the card's Send) | Sends only if the composer still holds that text for that chat; otherwise "Not sent: the message changed…" and COGNIX[WS] hears it was not sent |
+| deny (Don't send) | "Not sent: the person declined." and the composer is cleared |
+| a yes for a request the page no longer holds | Nothing is sent; COGNIX[WS] marks the card "Not sent: the panel was closed" |
+
+The decision table COGNIX[WS] runs (who sends, the permission, the 24-hour
+window, the 20-an-hour ceiling, Pause all) is in COGNIX[WS]'s
+`docs/architecture/webapp-actions.md`. With an older COGNIX[WS] the page keeps
+the 0.6 confirmation bar.
 
 ## A chat id that is a lid
 
@@ -141,9 +162,9 @@ number the page cannot resolve is not stored.
 
 ## Limits
 
-The confirmation is a control in the page. An agent that can click the page can
-click **Send**. The skill tells it not to. A confirmation the agent cannot
-reach would be a COGNIX[WS] approval outside the page; that door was not added.
+Before 0.8.0 the confirmation was a control in the page, and an agent that can
+click the page could click **Send**. From 0.8.0 the OK is a COGNIX[WS] Inbox
+card that only the person's own browser or app answers.
 
 From 0.7.0 that door exists: COGNIX[WS] tells the page which ids the person
 allowed (door N). The list the page enforces is COGNIX[WS]'s.

@@ -13,8 +13,8 @@ phone number or business id, and it never stores message text
 | Confirm the text | Every send still needs a confirmation of that exact text. One confirmation sends once. |
 
 Open the chat and use **Allow** followed by the number or the group id. **Remove**
-takes it off the list. A chat with no phone number yet cannot be allowed; it
-stays out until WhatsApp shows a number.
+takes it off the list. A chat whose phone number WhatsApp does not have, and
+which is not a group, cannot be allowed.
 
 Until a chat is allowed, a new message in it produces no note. The text is not
 put in the notice and not written to the extension's storage. The page remembers
@@ -57,6 +57,36 @@ writes. Shift+Enter stays a newline. The confirmation shows the exact text and
 the id. **Send** there is the confirmation; **Cancel** drops it. The next send
 needs its own confirmation.
 
+## A chat id that is a lid
+
+WhatsApp Web now addresses a saved contact as `<lid>@lid`. The lid is not a
+phone number, and it is not an id this page will store. Seen on 2026-11-06 in
+WhatsApp Business: the open chat was "Carlos Perche", the header said "No
+number yet", and every send was refused with "This chat has no phone number
+or group id, so nothing is sent." The number was on the account anyway
+(`+55 19 98346-…` in the contact info). The chat model carried the `@lid` and
+no `contact.phoneNumber`, which is the only place the previous guard looked,
+besides a chat id on `@c.us` or `@s.whatsapp.net`.
+
+The phone is taken from data the page already has, in this order. Nothing
+here asks WhatsApp's servers (`queryWidExists` is not called). If none of
+these yield one phone number of 8 to 15 digits, the chat is refused with the
+same sentence.
+
+| Where | What is read |
+|---|---|
+| The loaded chat | `contact.phoneNumber`, `phoneNumber`, `pnJid`, `contact.pnJid`, `contact.formattedPhone`, and `contact.id` when its host is `c.us` or `s.whatsapp.net`. A wid counts with `_serialized`, or with `user` and that host. A `@lid` user is never the phone, whatever its length. A device suffix (`:12`) is not part of the number. |
+| WhatsApp's lid map | `WAWebApiContact.getPhoneNumber(lidWid)`, the same local map `lidPnCache.getPhoneNumber` wraps, then `getLidEntry` if the first returns nothing. The wid is the chat's own `id`. The module is `require('WAWebApiContact')` when the page exposes `require`; otherwise it is an already-evaluated webpack module that exports `getPhoneNumber` and `getCurrentLid` (or `lidPnCache` with those two). The lookup does not run module factories. |
+| The open contact info | The single international number shown there (`+…`), and only for the chat that is open. The drawer's contact id is that `@lid`, or its title is that chat's name. The drawer's own props are read first (`[data-testid="contact-info-drawer"]`, otherwise `[data-testid="drawer-right"]`); the visible text is the fallback. Two different numbers is not an id. |
+
+The map is what lets a saved contact be allowed, and what lets a note leave,
+without opening the contact info. The list and the header both use it. The
+drawer covers the open chat when the map is not readable yet. The id that is
+stored is still the phone, or the group id. A display name is still not an id.
+
+An unsaved chat whose id is already `@c.us` or `@s.whatsapp.net` stays that
+number, and a group stays its `@g.us` id. Neither is passed through the lid map.
+
 ## Names saved earlier
 
 A list of names can be migrated when the chat list is on screen. A value that
@@ -97,7 +127,8 @@ that resolve are removed from it. The key is not read from COGNIX[WS].
 | `picode-whatsapp-wrote-v1` | Id to the time it last wrote. No message text. |
 | `picode-whatsapp-allow-names` | Names not yet resolved. |
 
-A display name cannot be stored as an id. A lid with no phone number is not an id.
+A display name cannot be stored as an id. A lid is not an id. A lid whose phone
+number the page cannot resolve is not stored.
 
 ## Limits
 

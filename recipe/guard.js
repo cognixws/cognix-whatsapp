@@ -32,36 +32,224 @@
     return String(value || '').replace(/\D/g, '');
   }
 
+  function cleanLabel(value) {
+    return String(value || '').replace(/[\u200e\u200f\u202a-\u202e]/g, '').trim();
+  }
+
   function serializedId(model) {
     try {
       const id = model && model.id;
       if (!id) return '';
       if (typeof id === 'string') return id;
-      return typeof id._serialized === 'string' ? id._serialized : '';
+      if (typeof id._serialized === 'string' && id._serialized) return id._serialized;
+      if (typeof id.toString === 'function' && id.toString !== Object.prototype.toString) {
+        const text = id.toString();
+        if (typeof text === 'string' && text.includes('@')) return text;
+      }
+      if (id.user != null && id.server) return String(id.user) + '@' + id.server;
+      return '';
     } catch { return ''; }
   }
 
-  function phoneDigits(model) {
+  const PHONE_HOST = /^(c\.us|s\.whatsapp\.net)$/;
+
+  // A phone wid, a formatted number, or digits. A @lid user is never a phone,
+  // even when it is the right length: that id is not dialable.
+  function digitsFromWid(value) {
     try {
-      const p = model && model.contact && model.contact.phoneNumber;
-      const raw = p && (p._serialized || p);
-      if (typeof raw !== 'string') return '';
-      const digits = digitsOf(raw.split('@')[0]);
-      return /^\d{8,15}$/.test(digits) ? digits : '';
+      if (value == null || value === '') return '';
+      if (typeof value === 'number' && Number.isFinite(value)) value = String(value);
+      if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text) return '';
+        if (text.includes('@')) {
+          const user = text.split('@')[0];
+          const host = text.split('@')[1];
+          if (!PHONE_HOST.test(host)) return '';
+          const digits = digitsOf(user.split(':')[0]);
+          return /^\d{8,15}$/.test(digits) ? digits : '';
+        }
+        if (!/^\+?\d[\d\s().-]{7,}$/.test(text)) return '';
+        const digits = digitsOf(text);
+        return /^\d{8,15}$/.test(digits) ? digits : '';
+      }
+      if (typeof value === 'object') {
+        const serial = typeof value._serialized === 'string' ? value._serialized : '';
+        if (serial) return digitsFromWid(serial);
+        if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
+          const text = value.toString();
+          if (typeof text === 'string' && text.includes('@')) return digitsFromWid(text);
+        }
+        const host = typeof value.server === 'string' ? value.server : '';
+        if (!PHONE_HOST.test(host) || value.user == null) return '';
+        const digits = digitsOf(String(value.user).split(':')[0]);
+        return /^\d{8,15}$/.test(digits) ? digits : '';
+      }
+      return '';
     } catch { return ''; }
+  }
+
+  function phoneFromModel(model) {
+    try {
+      if (!model || typeof model !== 'object') return '';
+      const contact = model.contact && typeof model.contact === 'object' ? model.contact : null;
+      const spots = [
+        contact && contact.phoneNumber,
+        model.phoneNumber,
+        model.pnJid,
+        contact && contact.pnJid,
+        contact && contact.formattedPhone,
+        contact && contact.id,
+      ];
+      for (const spot of spots) {
+        const digits = digitsFromWid(spot);
+        if (digits) return digits;
+      }
+      return '';
+    } catch { return ''; }
+  }
+
+  function fromJid(waId) {
+    if (typeof waId !== 'string' || !waId.includes('@')) return '';
+    const user = digitsOf(waId.split('@')[0].split(':')[0]);
+    const host = waId.split('@')[1];
+    return (host === 'c.us' || host === 's.whatsapp.net') && /^\d{8,15}$/.test(user) ? user : '';
+  }
+
+  function hintedDigits(value) {
+    if (typeof value !== 'string' || !value) return '';
+    const digits = digitsOf(value);
+    return /^\d{8,15}$/.test(digits) ? digits : '';
+  }
+
+  // WhatsApp's own lid → phone map, already in the page (WAWebApiContact /
+  // lidPnCache). Local only: this does not call queryWidExists or any server.
+  let lidPhone = null;
+  let webpackRequire = null;
+  let lidPhoneMissAt = 0;
+
+  function cacheApi(exp) {
+    if (!exp || (typeof exp !== 'object' && typeof exp !== 'function')) return null;
+    if (typeof exp.getPhoneNumber === 'function' && typeof exp.getCurrentLid === 'function') return exp;
+    const cache = exp.lidPnCache;
+    if (cache && typeof cache.getPhoneNumber === 'function' && typeof cache.getCurrentLid === 'function') return cache;
+    return null;
+  }
+
+  function phoneFn(exp) {
+    const api = cacheApi(exp) || cacheApi(exp && exp.default);
+    if (!api) return null;
+    return (wid) => {
+      let phone = null;
+      try { phone = api.getPhoneNumber(wid); } catch { phone = null; }
+      if (digitsFromWid(phone)) return phone;
+      if (typeof api.getLidEntry !== 'function') return '';
+      try {
+        const entry = api.getLidEntry(wid);
+        return entry && entry.phoneNumber;
+      } catch { return ''; }
+    };
+  }
+
+  function chunkLists() {
+    const out = [];
+    try {
+      for (const key of Object.keys(globalThis)) {
+        if (!key.startsWith('webpackChunk')) continue;
+        const list = globalThis[key];
+        if (list && typeof list.push === 'function') out.push(list);
+      }
+    } catch { /* the page does not list its globals */ }
+    return out;
+  }
+
+  function captureWebpackRequire() {
+    if (webpackRequire) return webpackRequire;
+    for (const list of chunkLists()) {
+      let found = null;
+      try {
+        list.push([['picode-wa-lid'], {}, (require) => { found = require; }]);
+      } catch { /* not the webpack runtime */ }
+      if (found && found.c) { webpackRequire = found; return found; }
+    }
+    return null;
+  }
+
+  function phoneFnFromCache(require) {
+    const cache = require && require.c;
+    if (!cache) return null;
+    for (const id of Object.keys(cache)) {
+      let exp;
+      try { exp = cache[id] && cache[id].exports; } catch { continue; }
+      const fn = phoneFn(exp);
+      if (fn) return fn;
+    }
+    return null;
+  }
+
+  function findLidPhone() {
+    try {
+      const req = globalThis.require;
+      if (typeof req === 'function') {
+        let mod = null;
+        try { mod = req('WAWebApiContact'); } catch { mod = null; }
+        const fn = phoneFn(mod);
+        if (fn) return fn;
+      }
+    } catch { /* require is not WhatsApp's */ }
+    const req = captureWebpackRequire();
+    return req ? phoneFnFromCache(req) : null;
+  }
+
+  function lidPhoneFn() {
+    if (lidPhone) return lidPhone;
+    const now = typeof Date !== 'undefined' && Date.now ? Date.now() : 0;
+    if (lidPhoneMissAt && now && now - lidPhoneMissAt < 5000) return null;
+    lidPhone = findLidPhone();
+    if (!lidPhone) lidPhoneMissAt = now || 1;
+    return lidPhone;
+  }
+
+  function lidWid(model) {
+    const id = model && model.id;
+    if (id && typeof id === 'object') return id;
+    const waId = serializedId(model);
+    if (!waId.endsWith('@lid')) return null;
+    return {
+      user: waId.slice(0, -'@lid'.length),
+      server: 'lid',
+      _serialized: waId,
+      toString() { return waId; },
+      isLid() { return true; },
+    };
+  }
+
+  function phoneFromLidMap(model) {
+    const waId = serializedId(model);
+    if (!waId.endsWith('@lid')) return '';
+    const fn = lidPhoneFn();
+    if (!fn) return '';
+    const wid = lidWid(model);
+    if (!wid) return '';
+    try { return digitsFromWid(fn(wid)); } catch { return ''; }
+  }
+
+  // The phone already on the loaded chat, or in WhatsApp's lid map. No drawer
+  // and no network. A group id is not a phone.
+  function phoneOf(model) {
+    const waId = serializedId(model);
+    if (/^[0-9A-Za-z._-]{1,64}@g\.us$/.test(waId)) return phoneFromModel(model);
+    return phoneFromModel(model) || fromJid(waId) || phoneFromLidMap(model);
   }
 
   // The stable id: a group's id, or a person's phone number. A lid with no
-  // phone is not stable enough, and a display name never is.
-  function identityOf(model, title) {
+  // phone is not stable enough, and a display name never is. hint is the
+  // number shown for this same chat in the open contact-info drawer, if any.
+  function identityOf(model, title, hint) {
     const waId = serializedId(model);
     const name = typeof title === 'string' ? title : '';
     if (/^[0-9A-Za-z._-]{1,64}@g\.us$/.test(waId)) return { key: waId, kind: 'group', name, waId, phone: '' };
-    const phone = phoneDigits(model);
-    const user = waId.includes('@') ? digitsOf(waId.split('@')[0]) : '';
-    const host = waId.includes('@') ? waId.split('@')[1] : '';
-    const fromJid = (host === 'c.us' || host === 's.whatsapp.net') && /^\d{8,15}$/.test(user) ? user : '';
-    const key = phone || fromJid;
+    const key = phoneOf(model) || hintedDigits(hint);
     if (!key) return null;
     return { key, kind: 'direct', name, waId, phone: key };
   }
@@ -293,6 +481,102 @@
     try { return (reader || defaultReader)(); } catch { return null; }
   }
 
+  function drawerRoot(doc) {
+    if (!doc || !doc.querySelector) return null;
+    try {
+      return doc.querySelector('[data-testid="contact-info-drawer"]')
+        || doc.querySelector('[data-testid="drawer-right"]');
+    } catch { return null; }
+  }
+
+  function considerPhone(found, obj, waId) {
+    if (!obj || typeof obj !== 'object') return;
+    const sid = serializedId(obj);
+    if (sid && (!found.id || sid === waId)) found.id = sid;
+    const phone = phoneFromModel(obj);
+    if (!phone) return;
+    if (waId && sid === waId) { found.matched = phone; return; }
+    if (!(obj.phoneNumber || obj.formattedPhone || obj.pnJid)) return;
+    if (!found.contact) found.contact = phone;
+    else if (found.contact !== phone) found.conflict = true;
+  }
+
+  // Props on the contact-info drawer, not its parents: a parent walk would
+  // reach other chats. Bounded so a wide tree cannot wander.
+  function phonesInTree(el, waId) {
+    const found = { id: '', matched: '', contact: '', conflict: false };
+    try {
+      if (!el) return found;
+      const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+      let left = 60;
+      const visit = (fiber) => {
+        if (!fiber || left <= 0) return;
+        left -= 1;
+        const props = fiber.memoizedProps;
+        if (props && typeof props === 'object') {
+          const data = props.data && typeof props.data === 'object' ? props.data : null;
+          const chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+          considerPhone(found, props, waId);
+          considerPhone(found, props.contact, waId);
+          considerPhone(found, data, waId);
+          considerPhone(found, data && data.data, waId);
+          considerPhone(found, data && data.contact, waId);
+          considerPhone(found, chat, waId);
+          considerPhone(found, chat && chat.contact, waId);
+        }
+        visit(fiber.child);
+        visit(fiber.sibling);
+      };
+      if (key) visit(el[key]);
+    } catch { /* the drawer still has its text */ }
+    return found;
+  }
+
+  function leafPhones(root) {
+    if (!root || !root.querySelectorAll) return [];
+    const found = [];
+    let nodes = [];
+    try { nodes = root.querySelectorAll('span, div'); } catch { return []; }
+    for (const el of nodes) {
+      if (!el || el.childElementCount || (el.children && el.children.length)) continue;
+      const text = cleanLabel(el.textContent);
+      if (!/^\+\d[\d\s().-]{6,22}$/.test(text)) continue;
+      const digits = digitsOf(text);
+      if (/^\d{8,15}$/.test(digits) && !found.includes(digits)) found.push(digits);
+    }
+    return found;
+  }
+
+  function drawerTitles(root) {
+    if (!root || !root.querySelectorAll) return [];
+    const out = [];
+    let nodes = [];
+    try { nodes = root.querySelectorAll('[title], [role="heading"]'); } catch { return []; }
+    for (const el of nodes) {
+      const title = el.getAttribute ? el.getAttribute('title') : '';
+      const text = cleanLabel(title || el.textContent || '');
+      if (text) out.push(text);
+    }
+    return out;
+  }
+
+  // The number in the open contact-info drawer, only when that drawer is this
+  // chat. Several different numbers is not one id.
+  function drawerPhone(doc, name, model) {
+    const root = drawerRoot(doc);
+    if (!root) return '';
+    const waId = serializedId(model);
+    const tree = phonesInTree(root, waId);
+    const nameOk = !!cleanLabel(name) && drawerTitles(root).some(t => t === cleanLabel(name));
+    const idOk = !!(waId && tree.id && tree.id === waId);
+    if (!nameOk && !idOk) return '';
+    if (tree.matched) return tree.matched;
+    if (tree.conflict) return '';
+    if (tree.contact) return tree.contact;
+    const phones = leafPhones(root);
+    return phones.length === 1 ? phones[0] : '';
+  }
+
   function defaultReader() {
     const doc = globalThis.document;
     if (!doc || !doc.querySelector) return null;
@@ -305,7 +589,10 @@
     }
     if (!name && headerTitle && headerTitle.getAttribute) name = headerTitle.getAttribute('title') || '';
     const main = doc.getElementById ? doc.getElementById('main') : null;
-    return identityOf(modelFrom(row) || modelFrom(main), name);
+    const model = modelFrom(row) || modelFrom(main);
+    let hint = '';
+    try { hint = drawerPhone(doc, name, model); } catch { hint = ''; }
+    return identityOf(model, name, hint);
   }
 
   function textOf(node) {
@@ -540,9 +827,10 @@
   }
 
   const api = {
-    identityOf, sendDecision, inboundDecision, releaseInbound, considerSend, migrateNames,
+    identityOf, phoneOf, sendDecision, inboundDecision, releaseInbound, considerSend, migrateNames,
     createState, allows, allow, disallow, markWrote, wroteFirst, validKey,
     state, install, onKeyDown, onClick, onConfirm, isSendControl, composerOf,
+    drawerPhone: (name, model) => drawerPhone(globalThis.document, name, model),
     setReader: (fn) => { reader = fn; },
     reload: () => { current = null; memory = null; },
     notice: null,

@@ -6,11 +6,12 @@ import vm from 'node:vm';
 const guardSource = readFileSync(new URL('../recipe/guard.js', import.meta.url), 'utf8');
 const signalsSource = readFileSync(new URL('../recipe/signals.js', import.meta.url), 'utf8');
 
-function loadPolicy(storage) {
+function loadPolicy(storage, extra) {
   const sandbox = {
     Map, Set, Object, JSON, Number, String, RegExp, Math, Date, Array,
     localStorage: storage,
     document: undefined,
+    ...extra,
   };
   sandbox.globalThis = sandbox;
   sandbox.window = sandbox;
@@ -207,7 +208,7 @@ test('saved names become ids when the chat list shows them, and the unseen stay'
   assert.equal(signals.length, 0, 'the learning look does not announce');
 });
 
-function world(storage, rows, signals, observers) {
+function world(storage, rows, signals, observers, extra) {
   const sandbox = {
     Map, Set, Object, JSON, Number, String, RegExp, Math, Date, Array,
     localStorage: {
@@ -223,6 +224,7 @@ function world(storage, rows, signals, observers) {
       createElement: () => ({ style: {}, setAttribute() {}, append() {}, addEventListener() {} }),
       addEventListener() {},
     },
+    ...extra,
     MutationObserver: class { constructor(f) { observers.push(f); } observe() {} disconnect() {} },
     queueMicrotask: f => f(),
     setInterval() {},
@@ -368,3 +370,343 @@ function sendHost(storage, ident) {
     },
   };
 }
+
+function lidMap(phoneFor) {
+  return (name) => {
+    if (name !== 'WAWebApiContact') return {};
+    return {
+      getPhoneNumber(wid) {
+        const id = wid && (wid._serialized || (typeof wid.toString === 'function' ? wid.toString() : ''));
+        const phone = phoneFor(String(id || ''));
+        return phone ? { _serialized: phone + '@c.us' } : undefined;
+      },
+      getCurrentLid() {},
+    };
+  };
+}
+
+test('an @lid chat becomes its phone id, and Allow stores that phone', () => {
+  const policy = loadPolicy(undefined, { require: lidMap(id => (id === '999001@lid' ? '5519983461234' : '')) });
+  const model = { id: { _serialized: '999001@lid', user: '999001', server: 'lid' }, contact: {} };
+  const ident = policy.identityOf(model, 'Carlos Perche');
+  assert.equal(ident.key, '5519983461234');
+  assert.equal(ident.kind, 'direct');
+  assert.equal(ident.waId, '999001@lid');
+  assert.equal(ident.phone, '5519983461234');
+  assert.equal(policy.allow(ident), true);
+  assert.equal(policy.allows('5519983461234'), true);
+  assert.equal(policy.allows('999001'), false);
+  assert.equal(policy.allow({ key: '999001', kind: 'direct', name: 'Carlos Perche' }), false);
+  policy.markWrote(ident.key, 20);
+  const send = policy.sendDecision({
+    allowed: policy.allows(ident.key),
+    wroteFirst: policy.wroteFirst(ident.key),
+    ok: true,
+    kind: ident.kind,
+    text: 'hi',
+  });
+  assert.equal(send.send, true);
+  assert.equal(send.reason, 'ok');
+  const stored = JSON.parse(policy.state().storage.getItem('picode-whatsapp-allow-v1'));
+  assert.equal(stored['5519983461234'].waId, '999001@lid');
+  assert.equal(stored['999001@lid'], undefined);
+});
+
+test('an @lid with no phone is still refused', () => {
+  let looked = 0;
+  const policy = loadPolicy(undefined, {
+    require: (name) => {
+      if (name !== 'WAWebApiContact') return {};
+      return {
+        getPhoneNumber(wid) { looked += 1; return wid && wid._serialized === '999001@lid' ? undefined : undefined; },
+        getCurrentLid() {},
+        getLidEntry() { return undefined; },
+      };
+    },
+  });
+  const model = { id: { _serialized: '999001@lid' }, contact: {} };
+  assert.equal(policy.identityOf(model, 'Carlos Perche'), null);
+  assert.equal(policy.identityOf({ id: { _serialized: '5511988887777@lid' }, contact: {} }, '+55 19 98346-1234'), null);
+  assert.ok(looked > 0, 'the lid map is consulted');
+  const send = policy.sendDecision({ allowed: true, wroteFirst: true, ok: true, kind: '', text: TEXT });
+  assert.equal(send.send, false);
+  assert.equal(send.reason, 'no_stable_id');
+  assert.equal(policy.releaseInbound({ preview: 'SECRET LINE' }, true, ''), null);
+});
+
+test('a phone wid without _serialized, and the formatted number, are already on the chat', () => {
+  const policy = loadPolicy();
+  const byUser = policy.identityOf({
+    id: { _serialized: '999001@lid' },
+    contact: { phoneNumber: { user: '5519983461234', server: 'c.us' } },
+  }, 'Carlos Perche');
+  assert.equal(byUser.key, '5519983461234');
+  const shown = policy.identityOf({
+    id: { _serialized: '999001@lid' },
+    contact: { formattedPhone: '+55 19 98346-1234' },
+  }, 'Carlos Perche');
+  assert.equal(shown.key, '5519983461234');
+  const onContact = policy.identityOf({
+    id: { _serialized: '999001@lid' },
+    contact: { id: { _serialized: '5519983461234@s.whatsapp.net' } },
+  }, 'Carlos Perche');
+  assert.equal(onContact.key, '5519983461234');
+  assert.equal(policy.identityOf({
+    id: { _serialized: '999001@lid' },
+    contact: { phoneNumber: { user: '999001', server: 'lid' } },
+  }, 'Carlos Perche'), null);
+});
+
+test('the lid map is also read from an already loaded webpack module', () => {
+  let pushes = 0;
+  const chunk = {
+    push(item) {
+      pushes += 1;
+      item[2]({
+        c: {
+          7: {
+            exports: {
+              lidPnCache: {
+                getPhoneNumber(wid) { return wid && wid._serialized === '42@lid' ? undefined : undefined; },
+                getCurrentLid() {},
+                getLidEntry(wid) {
+                  return wid && wid._serialized === '42@lid'
+                    ? { phoneNumber: { _serialized: '5511911112222@s.whatsapp.net' } }
+                    : undefined;
+                },
+              },
+            },
+          },
+        },
+      });
+    },
+  };
+  const policy = loadPolicy(undefined, { webpackChunkwhatsapp_web_client: chunk });
+  const ident = policy.identityOf({ id: { _serialized: '42@lid' }, contact: {} }, 'Ana');
+  assert.equal(ident.key, '5511911112222');
+  policy.identityOf({ id: { _serialized: '42@lid' }, contact: {} }, 'Ana');
+  assert.equal(pushes, 1, 'the module cache is kept');
+  assert.equal(policy.allow(ident), true);
+});
+
+test('a group and an unsaved number do not go through the lid map', () => {
+  let called = 0;
+  const policy = loadPolicy(undefined, {
+    require: () => ({
+      getPhoneNumber() { called += 1; return { _serialized: '5500000000000@c.us' }; },
+      getCurrentLid() {},
+    }),
+  });
+  const group = policy.identityOf({ id: { _serialized: '120363@g.us' }, contact: {} }, 'Family');
+  assert.equal(group.key, '120363@g.us');
+  assert.equal(group.kind, 'group');
+  assert.equal(group.phone, '');
+  const unsaved = policy.identityOf({ id: { _serialized: '5511988887777@c.us' }, contact: {} }, '+55 11 98888-7777');
+  assert.equal(unsaved.key, '5511988887777');
+  assert.equal(unsaved.kind, 'direct');
+  const net = policy.identityOf({ id: { _serialized: '5511911112222@s.whatsapp.net' }, contact: {} }, 'Ana');
+  assert.equal(net.key, '5511911112222');
+  assert.equal(called, 0);
+});
+
+function infoDrawer(name, phones, fiber) {
+  const leaves = [
+    { textContent: name, childElementCount: 0, children: [], getAttribute: (attr) => (attr === 'title' ? name : null) },
+    ...phones.map((phone) => ({ textContent: phone, childElementCount: 0, children: [], getAttribute: () => null })),
+  ];
+  const root = {
+    __reactFiber$x: fiber || null,
+    querySelectorAll(sel) {
+      const text = String(sel);
+      if (text.includes('title') || text.includes('heading')) return leaves.filter((leaf) => leaf.getAttribute('title'));
+      return leaves;
+    },
+  };
+  return root;
+}
+
+test('the open contact info is the fallback, and only for that chat', () => {
+  const model = { id: { _serialized: '999001@lid' }, contact: {} };
+  const doc = {
+    querySelector: (sel) => (String(sel).includes('drawer-right') ? infoDrawer('Carlos Perche', ['+55 19 98346-1234']) : null),
+  };
+  const policy = loadPolicy(undefined, { document: doc });
+  assert.equal(policy.drawerPhone('Carlos Perche', model), '5519983461234');
+  const ident = policy.identityOf(model, 'Carlos Perche', policy.drawerPhone('Carlos Perche', model));
+  assert.equal(ident.key, '5519983461234');
+  assert.equal(policy.allow(ident), true);
+  assert.equal(policy.drawerPhone('Other', model), '');
+  assert.equal(policy.identityOf(model, 'Other', policy.drawerPhone('Other', model)), null);
+  const two = loadPolicy(undefined, {
+    document: { querySelector: () => infoDrawer('Carlos Perche', ['+55 19 98346-1234', '+55 11 98888-7777']) },
+  });
+  assert.equal(two.drawerPhone('Carlos Perche', model), '');
+  const cached = loadPolicy(undefined, {
+    document: doc,
+    require: lidMap(() => '5519983461234'),
+  });
+  assert.equal(cached.identityOf(model, 'Carlos Perche', '5511000000000').key, '5519983461234');
+  const fiber = {
+    memoizedProps: {
+      contact: {
+        id: { _serialized: '999001@lid' },
+        phoneNumber: { user: '5519983469999', server: 'c.us' },
+      },
+    },
+  };
+  const fromState = loadPolicy(undefined, {
+    document: { querySelector: () => infoDrawer('Wrong name', [], fiber) },
+  });
+  assert.equal(fromState.drawerPhone('Wrong name', model), '5519983469999');
+});
+
+test('the header Allow button uses the phone resolved for the open @lid chat', () => {
+  const model = { id: { _serialized: '999001@lid' }, contact: {} };
+  const row = {
+    __reactFiber$x: { memoizedProps: { data: { data: model } } },
+    querySelector: (sel) => (String(sel).includes('title') ? { getAttribute: () => 'Carlos Perche' } : null),
+  };
+  const header = { children: [], append(node) { header.children.push(node); } };
+  const document = {
+    addEventListener() {},
+    getElementById: () => null,
+    querySelector: (sel) => {
+      const text = String(sel);
+      if (text === '#pane-side [aria-selected="true"]') return row;
+      if (text === '#main header') return header;
+      return null;
+    },
+    createElement: (tag) => {
+      const node = {
+        tag, style: {}, children: [], textContent: '', disabled: false,
+        setAttribute() {},
+        append(...kids) { node.children.push(...kids); },
+        addEventListener(type, fn) { node['on' + type] = fn; },
+        querySelector: (sel) => node.children.find((child) => child.tag === (sel === 'span' ? 'span' : 'button')) || null,
+        remove() {},
+      };
+      return node;
+    },
+  };
+  const policy = loadPolicy(undefined, {
+    document,
+    setInterval() {},
+    require: lidMap(id => (id === '999001@lid' ? '5519983461234' : '')),
+  });
+  const button = header.children[0].children[0];
+  assert.equal(button.textContent, 'Allow 5519983461234');
+  assert.equal(button.disabled, false);
+  button.onclick({ preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
+  assert.equal(policy.allows('5519983461234'), true);
+  assert.equal(policy.allows('999001'), false);
+});
+
+test('signals allow and refuse an @lid by the resolved phone', () => {
+  const carlos = {
+    id: { _serialized: '999001@lid' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const ghost = {
+    id: { _serialized: '888@lid' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const unsaved = {
+    id: { _serialized: '5511988887777@c.us' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const group = {
+    id: { _serialized: '120363@g.us' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const storage = {
+    'picode-whatsapp-allow-v1': JSON.stringify({
+      '5519983461234': { kind: 'direct', name: 'Carlos Perche', waId: '999001@lid' },
+      '5511988887777': { kind: 'direct', name: '', waId: '5511988887777@c.us' },
+      '120363@g.us': { kind: 'group', name: 'Family', waId: '120363@g.us' },
+    }),
+    'picode-whatsapp-seen-v2': JSON.stringify({
+      '999001@lid': { c: 0, t: 100 },
+      '888@lid': { c: 0, t: 100 },
+      '5511988887777@c.us': { c: 0, t: 100 },
+      '120363@g.us': { c: 0, t: 100 },
+    }),
+  };
+  const signals = [];
+  vm.runInNewContext(guardSource + '\n;\n' + signalsSource, world(storage, () => [
+    chatRow('Carlos Perche', carlos, 0),
+    chatRow('Ghost', ghost, 0),
+    chatRow('+55 11 98888-7777', unsaved, 0),
+    chatRow('Family', group, 0),
+  ], signals, [], {
+    require: lidMap(id => (id === '999001@lid' ? '5519983461234' : '')),
+  }), { filename: 'recipe.js' });
+  assert.deepEqual(signals.map(s => [s.chat, s.id, s.phone]), [
+    ['Carlos Perche', '999001@lid', '5519983461234'],
+    ['+55 11 98888-7777', '5511988887777@c.us', '5511988887777'],
+    ['Family', '120363@g.us', ''],
+  ]);
+  const wrote = JSON.parse(storage['picode-whatsapp-wrote-v1']);
+  assert.equal(wrote['5519983461234'], 300);
+  assert.equal(wrote['5511988887777'], 300);
+  assert.equal(wrote['120363@g.us'], 300);
+  assert.equal(wrote['888@lid'], undefined);
+  assert.equal(wrote['888'], undefined);
+  assert.equal(JSON.stringify(storage).includes('SECRET'), false);
+});
+
+test('only the open chat borrows the number from contact info', () => {
+  const selected = {
+    id: { _serialized: '999001@lid' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const other = {
+    id: { _serialized: '888@lid' },
+    contact: {},
+    msgs: { last: () => ({ t: 300, id: { fromMe: false }, type: 'chat', body: 'SECRET LINE' }) },
+  };
+  const row = (name, model, open) => ({
+    getAttribute: (attr) => (attr === 'aria-selected' && open ? 'true' : null),
+    __reactFiber$x: { return: { memoizedProps: { data: { data: model } } } },
+    querySelector: (sel) => (String(sel).includes('secondary') ? { getAttribute: () => 'preview' } : { getAttribute: () => name }),
+    querySelectorAll: () => [],
+  });
+  const storage = {
+    'picode-whatsapp-allow-v1': JSON.stringify({
+      '5519983461234': { kind: 'direct', name: 'Carlos Perche', waId: '999001@lid' },
+    }),
+    'picode-whatsapp-seen-v2': JSON.stringify({
+      '999001@lid': { c: 0, t: 100 },
+      '888@lid': { c: 0, t: 100 },
+    }),
+  };
+  const signals = [];
+  const drawer = infoDrawer('Carlos Perche', ['+55 19 98346-1234']);
+  const document = {
+    title: 'WhatsApp',
+    documentElement: {},
+    body: { prepend() {}, append() {} },
+    getElementById: (id) => (id === 'pane-side' ? { querySelectorAll: () => [row('Carlos Perche', selected, true), row('Carlos Perche', other, false)] } : null),
+    querySelector: (sel) => {
+      const text = String(sel);
+      if (text === 'title') return {};
+      if (text.includes('drawer-right') || text.includes('contact-info')) return drawer;
+      return null;
+    },
+    createElement: () => ({ style: {}, setAttribute() {}, append() {}, addEventListener() {} }),
+    addEventListener() {},
+  };
+  vm.runInNewContext(guardSource + '\n;\n' + signalsSource, world(storage, () => [], signals, [], {
+    document,
+    require: lidMap(() => ''),
+  }), { filename: 'recipe.js' });
+  assert.deepEqual(signals.map(s => [s.id, s.phone]), [['999001@lid', '5519983461234']]);
+  const wrote = JSON.parse(storage['picode-whatsapp-wrote-v1']);
+  assert.equal(wrote['5519983461234'], 300);
+  assert.equal(Object.keys(wrote).length, 1);
+  assert.equal(JSON.stringify(storage).includes('SECRET'), false);
+});

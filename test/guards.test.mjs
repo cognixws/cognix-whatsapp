@@ -309,7 +309,7 @@ test('the send button is the same gate as Enter', () => {
   assert.equal(skip.stopped, false);
 });
 
-function sendHost(storage, ident) {
+function sendHost(storage, ident, extra = {}) {
   const sent = [];
   const capture = [];
   const composer = {
@@ -347,6 +347,7 @@ function sendHost(storage, ident) {
       addEventListener(type, fn, flag) { if (type === 'keydown' && flag) capture.push(fn); },
     },
     setInterval() {},
+    ...extra,
   };
   sandbox.globalThis = sandbox;
   sandbox.window = sandbox;
@@ -783,4 +784,89 @@ test('an older COGNIX keeps the list in this page', () => {
   policy.allow({ key: '5511888880000', kind: 'direct', name: 'Ana' });
   assert.equal(policy.hosted(), false);
   assert.ok(storage.data['picode-whatsapp-allow-v1'].includes('5511888880000'));
+});
+
+// Door O (0.8.0, ADR-0403): with picode.ask the page holds the send and
+// COGNIX[WS] decides; the page sends that text once on a yes.
+function askHost(ident, { verdict } = {}) {
+  const storage = {};
+  const asked = [];
+  const outcomes = [];
+  const ears = [];
+  let resolveFirst = null;
+  const picode = {
+    v: 4,
+    subjects: { allow() {}, remove() {}, import() {}, list() { return null; } },
+    on: (name, fn) => { if (name === 'verdict') ears.push(fn); return () => {}; },
+    ask: (action, data) => { asked.push({ action, ...data }); return new Promise((r) => { resolveFirst = r; }); },
+    outcome: (requestId, outcome, item) => outcomes.push([requestId, outcome, item]),
+  };
+  const host = sendHost(storage, ident, { picode, setTimeout() { return 0; }, clearTimeout() {} });
+  host.policy.allow(ident);
+  host.policy.markWrote(ident.key, 1_700_000_000);
+  return {
+    ...host, asked, outcomes,
+    first: async (v) => { resolveFirst(v); await Promise.resolve(); await Promise.resolve(); },
+    later: (v) => ears.forEach((fn) => fn(v)),
+  };
+}
+
+const BIA = { key: '5511988887777', kind: 'direct', name: 'Bia', waId: '123@lid', phone: '5511988887777' };
+
+test('door O: Enter asks COGNIX, the card\'s yes sends that text once, and says so', async () => {
+  const h = askHost(BIA);
+  h.composer.innerText = TEXT;
+  assert.equal(h.press().stopped, true);
+  assert.equal(h.asked.length, 1);
+  assert.equal(h.asked[0].subject, BIA.key);
+  assert.equal(h.asked[0].text, TEXT);
+  assert.equal(h.asked[0].lastInboundAt, 1_700_000_000_000, 'seconds become milliseconds');
+  assert.equal(h.policy.notice.reason, 'waiting');
+  await h.first({ requestId: 'r1', verdict: 'wait', item: 'inb-1' });
+  assert.equal(h.press().stopped, true, 'a second Enter does not ask twice');
+  assert.equal(h.asked.length, 1);
+  h.later({ requestId: 'r1', verdict: 'send', item: 'inb-1', until: '' });
+  assert.deepEqual(h.sent, [TEXT]);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.outcomes)), [['r1', 'sent', 'inb-1']]);
+  assert.equal(h.policy.notice.reason, 'sent');
+  assert.equal(h.press().stopped, true, 'the yes was for that one send');
+  assert.equal(h.asked.length, 2);
+});
+
+test('door O: a grant answers at once; a no keeps the text unsent', async () => {
+  const h = askHost(BIA);
+  h.composer.innerText = TEXT;
+  h.press();
+  await h.first({ requestId: 'r1', verdict: 'send', until: 'always' });
+  assert.deepEqual(h.sent, [TEXT]);
+  assert.match(h.policy.notice.line, /^Sent \(allowed always\)\.$/);
+  h.composer.innerText = 'Another';
+  h.press();
+  await h.first({ requestId: 'r2', verdict: 'wait', item: 'inb-2' });
+  h.later({ requestId: 'r2', verdict: 'deny', item: 'inb-2' });
+  assert.deepEqual(h.sent, [TEXT]);
+  assert.equal(h.policy.notice.reason, 'denied');
+  assert.deepEqual(h.outcomes.length, 1);
+});
+
+test('door O: a changed text, or a yes for a request the page let go, sends nothing', async () => {
+  const h = askHost(BIA);
+  h.composer.innerText = TEXT;
+  h.press();
+  await h.first({ requestId: 'r1', verdict: 'wait', item: 'inb-1' });
+  h.composer.innerText = TEXT + ' (edited)';
+  h.later({ requestId: 'r1', verdict: 'send', item: 'inb-1' });
+  assert.deepEqual(h.sent, []);
+  assert.equal(h.policy.notice.reason, 'changed');
+  h.later({ requestId: 'old', verdict: 'send', item: 'inb-0' });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.outcomes)), [['r1', 'lost', 'inb-1'], ['old', 'lost', 'inb-0']]);
+});
+
+test('door O: the page still refuses an unlisted chat and writing first, without asking', () => {
+  const h = askHost(BIA);
+  h.policy.disallow(BIA.key);
+  h.composer.innerText = TEXT;
+  h.press();
+  assert.equal(h.policy.notice.reason, 'chat_not_allowed');
+  assert.equal(h.asked.length, 0);
 });

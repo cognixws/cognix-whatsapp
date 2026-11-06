@@ -80,8 +80,19 @@ and the next note after a pause says how many were held back.
 
 The `whatsapp-panel` skill teaches an agent to read, send and handle media in the
 panel. A send is refused unless that chat is allowed and has written to you
-first. The page then asks you to confirm that exact text, and one confirmation
-sends once. See [docs/send-guards.md](docs/send-guards.md).
+first. Then the page holds it and COGNIX[WS] asks you on a card in your Inbox,
+on the desktop or the phone, showing that exact text:
+
+- **Send** sends it once.
+- **Send and allow next** sends it and lets that agent or Assistant reply
+  alone in that chat until the time you pick (10 minutes to always, or a
+  custom time). Only within 24 hours of the chat's last message, and at most
+  20 replies an hour; past either, a card asks again.
+- **Don't send** keeps it unsent, and the agent is told.
+
+What you type yourself in a panel no agent is using sends as before, with no
+card. You end a permission in the tile's **Chats…** or in **Remembered
+approvals**, also from your phone. See [docs/send-guards.md](docs/send-guards.md).
 
 ## The official source
 
@@ -146,7 +157,8 @@ governed by
 [WhatsApp's Terms of Service](https://www.whatsapp.com/legal/terms-of-service),
 which restrict automated and bulk messaging and non-personal use. Notifications
 only tell about chats you allowed. An agent can reply only in a chat that
-wrote first, and only after you confirm that exact message.
+wrote first, and only after your OK for that exact message, or within a
+permission you gave for that chat.
 
 ## Backlog
 

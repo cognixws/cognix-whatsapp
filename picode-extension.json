@@ -1,7 +1,7 @@
 {
   "id": "whatsapp",
   "name": "WhatsApp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "apiVersion": 21,
   "publisher": "cognixws",
   "description": "WhatsApp Web beside your agents, and the official WhatsApp API as a second source of notifications.",
@@ -60,7 +60,20 @@
               "group"
             ],
             "key": "^(\\d{8,15}|[0-9A-Za-z._-]{1,64}@g\\.us)$"
-          }
+          },
+          "actions": [
+            {
+              "id": "send",
+              "title": "Send a message",
+              "subject": true,
+              "fields": [
+                "text",
+                "attachments"
+              ],
+              "grantable": true,
+              "replyWindow": 86400
+            }
+          ]
         }
       }
     ]

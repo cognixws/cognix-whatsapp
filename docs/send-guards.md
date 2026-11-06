@@ -16,6 +16,14 @@ Open the chat and use **Allow** followed by the number or the group id. **Remove
 takes it off the list. A chat whose phone number WhatsApp does not have, and
 which is not a group, cannot be allowed.
 
+From 0.7.0 (COGNIX[WS] manifest version 21, door N of ADR-0403) the list lives
+in COGNIX[WS]. **Allow** and **Remove** write there through
+`picode.subjects`; COGNIX[WS] sends the list back on every change and the page
+keeps it as a read-only copy (`picode-whatsapp-subjects-cache-v1`), so a reload
+has it before COGNIX[WS] answers. **Chats…** in the tile's menu is the same
+list. The first load imports the page's own list once and clears it. COGNIX[WS]
+also drops a signal about a chat that is not on its list.
+
 Until a chat is allowed, a new message in it produces no note. The text is not
 put in the notice and not written to the extension's storage. The page remembers
 only that the id has written, and when, so a later allow does not start the
@@ -110,10 +118,9 @@ Unresolved names stay in the list and are tried again when the chat list
 changes. The header says how many are left. Allowing the open chat by its id
 does not depend on the name.
 
-What this cannot see: the names typed in COGNIX[WS]'s **Notifications…**
-dialog. That dialog lives in COGNIX[WS], and the page is not told which chats
-were chosen there. Those names are not migrated. Notifications… still chooses
-who hears a note, but only a chat allowed here produces a note at all.
+What this cannot see: the names typed in COGNIX[WS]'s old **Notifications…**
+dialog. From 0.7.0 COGNIX[WS] moves those itself, in **Chats…**, once the chat
+they name is on the list.
 
 To migrate a name list the page can see, store a JSON array of strings under
 the key `picode-whatsapp-allow-names` in the panel page's own storage. Names
@@ -123,7 +130,9 @@ that resolve are removed from it. The key is not read from COGNIX[WS].
 
 | Key | Contents |
 |---|---|
-| `picode-whatsapp-allow-v1` | Phone numbers and group ids, with the kind and the name last seen. No message text. |
+| `picode-whatsapp-allow-v1` | Phone numbers and group ids, with the kind and the name last seen. No message text. Empty after the 0.7.0 import. |
+| `picode-whatsapp-subjects-cache-v1` | The copy of COGNIX[WS]'s list (0.7.0). |
+| `picode-whatsapp-allow-imported` | When the old list was moved to COGNIX[WS]. |
 | `picode-whatsapp-wrote-v1` | Id to the time it last wrote. No message text. |
 | `picode-whatsapp-allow-names` | Names not yet resolved. |
 
@@ -136,9 +145,8 @@ The confirmation is a control in the page. An agent that can click the page can
 click **Send**. The skill tells it not to. A confirmation the agent cannot
 reach would be a COGNIX[WS] approval outside the page; that door was not added.
 
-Reading the **Notifications…** list from the page would be a door the other
-way: COGNIX[WS] telling the page which ids the person allowed. That was not
-added either. The allow-list this file enforces is the one in the panel.
+From 0.7.0 that door exists: COGNIX[WS] tells the page which ids the person
+allowed (door N). The list the page enforces is COGNIX[WS]'s.
 
 ### The open chat's model (0.6.2)
 

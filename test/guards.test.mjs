@@ -723,3 +723,64 @@ test('only the open chat borrows the number from contact info', () => {
   assert.equal(Object.keys(wrote).length, 1);
   assert.equal(JSON.stringify(storage).includes('SECRET'), false);
 });
+
+// COGNIX[WS] with doors N and O (picode v4, ADR-0403): the list lives there.
+function fakeHost() {
+  const posted = [];
+  const ears = { subjects: [], verdict: [] };
+  const picode = {
+    v: 4,
+    subjects: {
+      allow: (x) => posted.push({ ...x, op: 'allow' }),
+      remove: (key) => posted.push({ op: 'remove', key }),
+      import: (entries) => posted.push({ op: 'import', entries }),
+      list: () => { posted.push({ op: 'list' }); return null; },
+    },
+    on: (name, fn) => { ears[name].push(fn); return () => {}; },
+  };
+  return { picode, posted, push: (name, value) => ears[name].forEach((fn) => fn(value)) };
+}
+
+function memory(seed = {}) {
+  const data = { ...seed };
+  return { data, getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); } };
+}
+
+test('with COGNIX doors the old list is imported once, then the page keeps COGNIX\'s copy', () => {
+  const storage = memory({ 'picode-whatsapp-allow-v1': JSON.stringify({ '5511999990000': { kind: 'direct', name: 'Bia' }, 'bad': { kind: 'direct' } }) });
+  const host = fakeHost();
+  const policy = loadPolicy(storage, { picode: host.picode });
+  assert.equal(policy.allows('5511999990000'), true, 'the old list answers until COGNIX sends its own');
+  assert.equal(policy.hosted(), true);
+  assert.deepEqual(host.posted.map((m) => m.op), ['import', 'list']);
+  assert.deepEqual(JSON.parse(JSON.stringify(host.posted[0].entries)), [{ key: '5511999990000', kind: 'direct', name: 'Bia' }]);
+  assert.equal(storage.data['picode-whatsapp-allow-v1'], '{}', 'cleared after the import');
+  host.push('subjects', [{ key: '120363@g.us', kind: 'group', name: 'Work' }]);
+  assert.equal(policy.allows('5511999990000'), false, 'COGNIX\'s list wins');
+  assert.equal(policy.allows('120363@g.us'), true);
+  assert.ok(storage.data['picode-whatsapp-subjects-cache-v1'].includes('120363@g.us'));
+  // A second load imports nothing again and starts from the copy.
+  const again = fakeHost();
+  const p2 = loadPolicy(storage, { picode: again.picode });
+  assert.equal(p2.allows('120363@g.us'), true);
+  assert.deepEqual(again.posted.map((m) => m.op), ['list']);
+});
+
+test('with COGNIX doors Allow and Remove write to COGNIX, not to this page', () => {
+  const storage = memory();
+  const host = fakeHost();
+  const policy = loadPolicy(storage, { picode: host.picode });
+  assert.equal(policy.allow({ key: '5511888880000', kind: 'direct', name: 'Ana' }), true);
+  policy.disallow('5511888880000');
+  assert.deepEqual(host.posted.filter((m) => m.op !== 'list').map((m) => [m.op, m.key]), [['allow', '5511888880000'], ['remove', '5511888880000']]);
+  assert.equal(storage.data['picode-whatsapp-allow-v1'], undefined, 'nothing kept here');
+  assert.equal(policy.allow({ key: 'Ana', kind: 'direct' }), false, 'a name is still not an id');
+});
+
+test('an older COGNIX keeps the list in this page', () => {
+  const storage = memory();
+  const policy = loadPolicy(storage, { picode: { v: 3, signal() {}, badge() {} } });
+  policy.allow({ key: '5511888880000', kind: 'direct', name: 'Ana' });
+  assert.equal(policy.hosted(), false);
+  assert.ok(storage.data['picode-whatsapp-allow-v1'].includes('5511888880000'));
+});

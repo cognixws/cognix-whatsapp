@@ -25,8 +25,9 @@ WhatsApp side stays readable in one place.
       chats stay muted the way WhatsApp decides. Measured 2026-10-18: the
       page reads the permission once at load, so the wrapper must run before
       it.
-- [ ] A chat filter that survives a renamed group (match by a stable id, if
-      the page exposes one).
+- [x] A chat filter that survives a renamed group: allowed by phone number or
+      group id in `recipe/guard.js` (2026-11-05). A lid with no phone number
+      still cannot be allowed.
 - [ ] Mentions: a separate signal when the account is mentioned in a group.
 
 - [x] Say when the page stops noticing messages (QR code asked again, page
@@ -42,6 +43,10 @@ WhatsApp side stays readable in one place.
 - [ ] Examples of Assistant instructions for WhatsApp notes: summarize,
       tell the owner only what is urgent, draft a reply and ask before
       sending.
+- [x] Sending is refused unless the chat is allowed by id, has written first,
+      and the person confirms that exact text (`recipe/guard.js`, 2026-11-05).
+      The confirmation is in the page; an agent that can click the page can
+      still click it.
 - [ ] Sending: an agent replied live on 2026-10-19 with the browser verbs
       (`type` then `press Enter`). Note that `type` reported the field as
       empty right after typing although the message went out whole; check

@@ -15,7 +15,7 @@ your Inbox and, if you choose, to an Assistant or an agent.
 ## Install
 
 1. In COGNIX[WS], open **Extensions ▸ Add** and enter
-   `https://github.com/cognixws/picode-whatsapp`.
+   `https://github.com/cognixws/cognix-whatsapp`.
 2. Review what it adds and install it.
 3. Turn it on in the workspaces whose agents should use it. Assistants can
    open it whatever workspace it is on in.

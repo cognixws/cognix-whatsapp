@@ -72,6 +72,13 @@
     } catch { return null; }
   };
   const phoneOf = (chat) => {
+    const gate = globalThis.__picodeWhatsappPolicy;
+    if (gate && typeof gate.phoneOf === 'function') {
+      try {
+        const resolved = gate.phoneOf(chat);
+        if (typeof resolved === 'string') return resolved;
+      } catch { /* the row still has its own fields */ }
+    }
     try {
       const p = chat && chat.contact && chat.contact.phoneNumber;
       const raw = p && (p._serialized || p);
@@ -112,13 +119,22 @@
       // arriving later would read as new (seen live 2026-11-03).
       const newest = Math.max(before ? before.t || 0 : 0, lastT);
       if (!before || before.c !== count || before.t !== newest) { seen.set(id, { c: count, t: newest }); dirty = true; }
-      known.set(id, { id, name: chat, phone: phoneOf(model) });
       // Unlisted chats are dropped here, before a notice and before the text
       // exists anywhere but on WhatsApp's own page. The "has written" mark is
       // only the id and the time, so a later allow still knows not to write first.
+      // A selected row may take the number from the open contact-info drawer.
       const gate = globalThis.__picodeWhatsappPolicy;
+      let identity = null;
+      if (gate && gate.identityOf) {
+        let hint = '';
+        if (row.getAttribute && row.getAttribute('aria-selected') === 'true' && gate.drawerPhone) {
+          try { hint = gate.drawerPhone(chat, model) || ''; } catch { hint = ''; }
+        }
+        try { identity = gate.identityOf(model, chat, hint); } catch { identity = null; }
+      }
+      const phone = identity && identity.kind === 'direct' ? identity.phone : phoneOf(model);
+      known.set(id, { id, name: chat, phone });
       if (gate) {
-        const identity = gate.identityOf(model, chat);
         if (identity && last && last.incoming) gate.markWrote(identity.key, last.t);
         const inbound = gate.inboundDecision({
           allowed: !!(identity && gate.allows(identity.key)),
@@ -133,7 +149,7 @@
       // Only an open chat, whose count stays at zero: a closed one says it by its count.
       const wrote = !!(count === 0 && before && before.t && last && last.incoming && lastT > before.t);
       if (more || wrote) {
-        window.picode.signal("message", { chat, count: Math.max(count, 1), id, phone: phoneOf(model), preview: previewOf(row, last) });
+        window.picode.signal("message", { chat, count: Math.max(count, 1), id, phone, preview: previewOf(row, last) });
       }
     }
     primed = true;

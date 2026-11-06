@@ -479,6 +479,27 @@
     return null;
   }
 
+  // WhatsApp's own active chat (WAWebChatCollection), when the React tree no
+  // longer carries the model where modelFrom looks (2026-11-06: neither the
+  // selected row nor #main had props.data.data). Read only; the model's wid
+  // is what the lid map wants.
+  function activeChatModel() {
+    try {
+      const req = globalThis.require;
+      if (typeof req !== 'function') return null;
+      const mod = req('WAWebChatCollection');
+      const coll = mod && (mod.ChatCollection || mod);
+      if (!coll) return null;
+      if (typeof coll.getActive === 'function') {
+        const chat = coll.getActive();
+        if (chat && chat.id) return chat;
+      }
+      const list = typeof coll.getModelsArray === 'function' ? coll.getModelsArray() : null;
+      const chat = list && list.find(c => c && c.active);
+      return chat && chat.id ? chat : null;
+    } catch { return null; }
+  }
+
   let reader = null;
   function currentIdentity() {
     try { return (reader || defaultReader)(); } catch { return null; }
@@ -592,7 +613,7 @@
     }
     if (!name && headerTitle && headerTitle.getAttribute) name = headerTitle.getAttribute('title') || '';
     const main = doc.getElementById ? doc.getElementById('main') : null;
-    const model = modelFrom(row) || modelFrom(main);
+    const model = modelFrom(row) || modelFrom(main) || activeChatModel();
     let hint = '';
     try { hint = drawerPhone(doc, name, model); } catch { hint = ''; }
     return identityOf(model, name, hint);

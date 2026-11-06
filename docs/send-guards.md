@@ -139,3 +139,11 @@ reach would be a COGNIX[WS] approval outside the page; that door was not added.
 Reading the **Notifications…** list from the page would be a door the other
 way: COGNIX[WS] telling the page which ids the person allowed. That was not
 added either. The allow-list this file enforces is the one in the panel.
+
+### The open chat's model (0.6.2)
+
+On 2026-11-06 WhatsApp Web stopped carrying the chat model where the guard
+looked for it (the selected row's and `#main`'s React props), so even a lid
+with a known phone read "No number yet". The guard now falls back to
+WhatsApp's own active chat (`WAWebChatCollection`), read only. Verified
+live: the saved contact "Carlos Perche" (`…@lid`) resolves to its phone.

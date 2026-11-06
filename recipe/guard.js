@@ -127,6 +127,7 @@
   let lidPhone = null;
   let webpackRequire = null;
   let lidPhoneMissAt = 0;
+  const chunkCaptureTried = new Set();
 
   function cacheApi(exp) {
     if (!exp || (typeof exp !== 'object' && typeof exp !== 'function')) return null;
@@ -166,6 +167,8 @@
   function captureWebpackRequire() {
     if (webpackRequire) return webpackRequire;
     for (const list of chunkLists()) {
+      if (chunkCaptureTried.has(list)) continue;
+      chunkCaptureTried.add(list);
       let found = null;
       try {
         list.push([['picode-wa-lid'], {}, (require) => { found = require; }]);

@@ -489,6 +489,19 @@ test('the lid map is also read from an already loaded webpack module', () => {
   assert.equal(policy.allow(ident), true);
 });
 
+test('a webpack chunk that does not yield the map is pushed once', () => {
+  let now = 10_000;
+  let pushes = 0;
+  const policy = loadPolicy(undefined, {
+    Date: { now: () => now },
+    webpackChunkwhatsapp_web_client: { push() { pushes += 1; } },
+  });
+  assert.equal(policy.identityOf({ id: { _serialized: '42@lid' }, contact: {} }, 'Ana'), null);
+  now = 20_000;
+  assert.equal(policy.identityOf({ id: { _serialized: '42@lid' }, contact: {} }, 'Ana'), null);
+  assert.equal(pushes, 1);
+});
+
 test('a group and an unsaved number do not go through the lid map', () => {
   let called = 0;
   const policy = loadPolicy(undefined, {

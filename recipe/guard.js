@@ -9,8 +9,15 @@
 //
 // The official source does not send and is not this file. No message body is
 // written to storage: the allow-list and the "has written" map are ids and times.
+//
+// With COGNIX[WS] 0.7 doors (picode v4, ADR-0403), the allow-list lives in
+// COGNIX[WS]: Allow and Remove write there, and this page keeps the list
+// COGNIX[WS] sends as a read-only copy. The list this page kept before is
+// imported once, then cleared. An older COGNIX[WS] keeps the list here.
 (() => {
   const ALLOW_KEY = 'picode-whatsapp-allow-v1';
+  const CACHE_KEY = 'picode-whatsapp-subjects-cache-v1';
+  const IMPORTED_KEY = 'picode-whatsapp-allow-imported';
   const WROTE_KEY = 'picode-whatsapp-wrote-v1';
   const NAMES_KEY = 'picode-whatsapp-allow-names';
   const SEND_LABEL = /^(send|enviar|envoyer|senden|invia|verstuur)$/i;
@@ -367,12 +374,19 @@
       const s = storage || memory || (memory = memoryStorage());
       current = createState(s);
       current.ephemeral = !storage;
+      joinHost(current);
     }
     return current;
   }
 
   function allows(st, key) {
     return !!(key && st && st.allow && st.allow[key]);
+  }
+
+  // COGNIX[WS]'s list door (picode v4), or null on an older COGNIX[WS].
+  function hostDoor() {
+    const p = globalThis.picode;
+    return p && p.v >= 4 && p.subjects && typeof p.subjects.allow === 'function' && typeof p.on === 'function' ? p : null;
   }
 
   function allow(st, entry) {
@@ -382,14 +396,53 @@
       name: String(entry.name || '').slice(0, 120),
       waId: String(entry.waId || '').slice(0, 120),
     };
-    writeJSON(st.storage, ALLOW_KEY, st.allow);
+    const door = st.host ? hostDoor() : null;
+    if (door) door.subjects.allow({ key: entry.key, kind: entry.kind, name: st.allow[entry.key].name });
+    else writeJSON(st.storage, ALLOW_KEY, st.allow);
     return true;
   }
 
   function disallow(st, key) {
     if (!st || !st.allow || !st.allow[key]) return;
     delete st.allow[key];
-    writeJSON(st.storage, ALLOW_KEY, st.allow);
+    const door = st.host ? hostDoor() : null;
+    if (door) door.subjects.remove(key);
+    else writeJSON(st.storage, ALLOW_KEY, st.allow);
+  }
+
+  // The list COGNIX[WS] sent: it replaces the copy, and the copy is kept so
+  // the next load has it before COGNIX[WS] answers.
+  function takeHostList(st, list) {
+    const next = {};
+    for (const s of Array.isArray(list) ? list : []) {
+      if (!s || !validKey(s.kind, s.key)) continue;
+      const before = st.allow[s.key];
+      next[s.key] = { kind: s.kind, name: String(s.name || '').slice(0, 120), waId: before ? before.waId : '' };
+    }
+    st.allow = next;
+    writeJSON(st.storage, CACHE_KEY, next);
+  }
+
+  // Move this page to COGNIX[WS]'s list: the copy it kept, the old list
+  // imported once (then cleared), and every later push.
+  function joinHost(st) {
+    const door = hostDoor();
+    if (!st || !door || st.host) return false;
+    st.host = true;
+    const old = sanitizeAllow(readJSON(st.storage, ALLOW_KEY));
+    const cached = readJSON(st.storage, CACHE_KEY);
+    st.allow = cached ? sanitizeAllow(cached) : { ...old };
+    if (Object.keys(old).length && !readJSON(st.storage, IMPORTED_KEY)) {
+      door.subjects.import(Object.entries(old).map(([key, v]) => ({ key, kind: v.kind, name: v.name })));
+      writeJSON(st.storage, IMPORTED_KEY, Date.now ? Date.now() : 1);
+      writeJSON(st.storage, ALLOW_KEY, {});
+    }
+    door.on('subjects', (list) => {
+      takeHostList(st, list);
+      try { refreshAllow(); } catch { /* the header is mid-render */ }
+    });
+    door.subjects.list();
+    return true;
   }
 
   function markWrote(st, key, at) {
@@ -852,11 +905,12 @@
 
   const api = {
     identityOf, phoneOf, sendDecision, inboundDecision, releaseInbound, considerSend, migrateNames,
-    createState, allows, allow, disallow, markWrote, wroteFirst, validKey,
+    createState, allows, allow, disallow, markWrote, wroteFirst, validKey, joinHost, takeHostList,
     state, install, onKeyDown, onClick, onConfirm, isSendControl, composerOf,
     drawerPhone: (name, model) => drawerPhone(globalThis.document, name, model),
     setReader: (fn) => { reader = fn; },
     reload: () => { current = null; memory = null; },
+    hosted: () => !!(current && current.host),
     notice: null,
     lastMigration: null,
   };

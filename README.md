@@ -6,8 +6,9 @@ your Inbox and, if you choose, to an Assistant or an agent.
 
 ## What you need
 
-- COGNIX[WS] with manifest version 9 and the desktop app (Windows). The panel
-  and its notifications live in the desktop app, so it must be open.
+- COGNIX[WS] with manifest version 21 and the desktop app (Windows). The panel
+  and its notifications live in the desktop app, so it must be open. With an
+  older COGNIX[WS] this version does not install; 0.6.x keeps working there.
 - A WhatsApp account you can link as a device (Settings ▸ Linked devices on
   your phone). WhatsApp Business works too.
 
@@ -31,23 +32,24 @@ agent's **Open beside** menu.
    background**. Without it, closing WhatsApp's tab closes the page, and
    nothing can notice new messages. With it, closing the tab only hides the
    page, and it keeps receiving messages.
-3. **Choose who hears about new messages.** In the tile's menu, choose
-   **Notifications…**:
-   - **A note in my Inbox** (on by default): one note per chat with new
-     messages, for example "WhatsApp: 3 unread in Family".
-   - **Also tell**: add an Assistant or an agent that should hear about it,
-     as many as you want (with COGNIX[WS] newer than November 2026; up to 8
-     before that). For each, leave **Only these chats** empty to hear about every
-     chat, or type chat names separated by commas (`Family, Work team`). A
-     name must be written as WhatsApp shows it in the chat list; case does
-     not matter.
-
-   Save. The Inbox and the people you added are independent: you can turn the
-   Inbox off and keep an Assistant hearing one group.
-4. **Allow chats by id.** Open a chat and choose **Allow** followed by its
+3. **Allow chats by id.** Open a chat and choose **Allow** followed by its
    phone number, or **Allow group** followed by the group id. A name is not
    enough, and a chat that has no number yet cannot be allowed. Only an
    allowed chat produces a note. **Remove** takes it off the list.
+4. **Choose who hears each chat.** In the tile's menu, choose **Chats…**. It
+   is the same list: what you allow in the panel shows there within a second,
+   and what you add or remove there reaches the panel.
+   - **A note in my Inbox** (on by default): one note per chat with new
+     messages, for example "WhatsApp: 3 unread in Family".
+   - **Who hears**, on each chat's row: add an Assistant or an agent that
+     should hear about that chat, or remove one. Every change applies at
+     once.
+
+   The list lives in COGNIX[WS], not in the panel's page: clearing WhatsApp's
+   data or linking another session keeps it. The first time this version
+   loads, the page moves the chats it had allowed itself into COGNIX[WS].
+   Names typed in the old Notifications… move to their chat once you allow
+   that chat; until then **Chats…** shows them as names without an id.
 
 The tile shows how many chats have unread messages, also while the app is
 hidden. A chat that is not allowed does not produce a note, so after this
@@ -130,8 +132,8 @@ extension.
 
 | You see | Do this |
 |---|---|
-| No notes at all | Check Keep running is on and the desktop app is open; open the tile's Notifications… and check the Inbox box or a route is set |
-| A chat never reaches its Assistant | Open the chat and Allow its number or group id. Notifications… still chooses who hears an allowed chat |
+| No notes at all | Check Keep running is on and the desktop app is open; open the tile's Chats… and check the Inbox switch or a chat's Who hears |
+| A chat never reaches its Assistant | Open the chat and Allow its number or group id, then add the Assistant to that chat's Who hears in Chats… |
 | "WhatsApp's notifications cannot reach COGNIX[WS]: …" | Update COGNIX[WS]; the message names what failed |
 | The tab says "recipe out of date" | WhatsApp changed its page; update the extension, or ask an agent to adjust the layout and `adjust save` it |
 | WhatsApp asks for the QR code again | Your phone unlinked the device; link it again. You get "WhatsApp needs you" about 30 seconds after it happens |
